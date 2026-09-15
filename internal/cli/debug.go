@@ -4,16 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
-	"os/exec"
-	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/EmoFa/anitui/internal/domain"
 	"github.com/EmoFa/anitui/internal/httpx"
+	"github.com/EmoFa/anitui/internal/player"
 	"github.com/EmoFa/anitui/internal/provider"
 	"github.com/EmoFa/anitui/internal/streamproxy"
 )
@@ -22,6 +23,7 @@ import (
 // without the UI. Hidden from help.
 func newDebugCmd(app *App) *cobra.Command {
 	var mode, quality string
+	var start time.Duration
 	cmd := &cobra.Command{
 		Use:    "debug",
 		Short:  "Low-level provider commands for troubleshooting",
@@ -59,6 +61,42 @@ func newDebugCmd(app *App) *cobra.Command {
 		}
 		return provider.FindEpisode(eps, n)
 	}
+
+	playCmd := &cobra.Command{
+		Use:   "play <provider> <show-id> <episode>",
+		Short: "Resolve an episode and play it in mpv",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			m, err := modeOf()
+			if err != nil {
+				return err
+			}
+			p, err := providerOf(ctx, args[0])
+			if err != nil {
+				return err
+			}
+			ep, err := episodeOf(ctx, p, args[1], args[2], m)
+			if err != nil {
+				return err
+			}
+			streams, err := p.Streams(ctx, args[1], ep, m)
+			if err != nil {
+				return err
+			}
+			q := quality
+			if q == "" {
+				q = app.Config.General.Quality
+			}
+			stream, err := domain.SelectStream(streams, q)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "Playing episode %s: %s\n", ep.Label(), stream.Label)
+			return playDebug(ctx, app, stream, fmt.Sprintf("Episode %s", ep.Label()), start)
+		},
+	}
+	playCmd.Flags().DurationVar(&start, "start", 0, "start position, e.g. 12m30s")
 
 	cmd.AddCommand(
 		&cobra.Command{
@@ -145,51 +183,16 @@ func newDebugCmd(app *App) *cobra.Command {
 				return printJSON(streams)
 			},
 		},
-		&cobra.Command{
-			Use:   "play <provider> <show-id> <episode>",
-			Short: "Resolve an episode and play it in mpv",
-			Args:  cobra.ExactArgs(3),
-			RunE: func(cmd *cobra.Command, args []string) error {
-				ctx := cmd.Context()
-				m, err := modeOf()
-				if err != nil {
-					return err
-				}
-				p, err := providerOf(ctx, args[0])
-				if err != nil {
-					return err
-				}
-				ep, err := episodeOf(ctx, p, args[1], args[2], m)
-				if err != nil {
-					return err
-				}
-				streams, err := p.Streams(ctx, args[1], ep, m)
-				if err != nil {
-					return err
-				}
-				q := quality
-				if q == "" {
-					q = app.Config.General.Quality
-				}
-				stream, err := domain.SelectStream(streams, q)
-				if err != nil {
-					return err
-				}
-				fmt.Fprintf(os.Stderr, "Playing episode %s: %s\n", ep.Label(), stream.Label)
-				return playDebug(ctx, app, stream, fmt.Sprintf("Episode %s", ep.Label()))
-			},
-		},
+		playCmd,
 	)
 	return cmd
 }
 
-// playDebug runs mpv in the foreground. The real player layer (IPC, progress,
-// skipping) replaces this in Phase 2.
-func playDebug(ctx context.Context, app *App, s domain.Stream, title string) error {
-	target := s.URL
-	args := []string{"--force-media-title=" + title}
+// playDebug plays a stream through the player layer and prints progress. The
+// session orchestrator (history, autoplay, skipping) builds on this in Phase 3.
+func playDebug(ctx context.Context, app *App, s domain.Stream, title string, start time.Duration) error {
+	req := player.Request{URL: s.URL, Title: title, Start: start, Headers: s.Headers, AudioLang: s.AudioLang}
 	subURL := func(u string) string { return u }
-
 	if s.NeedsProxy {
 		// No overall timeout: the proxy streams long bodies.
 		proxy, err := streamproxy.Start(httpx.New(httpx.Options{Timeout: -1}))
@@ -197,36 +200,70 @@ func playDebug(ctx context.Context, app *App, s domain.Stream, title string) err
 			return err
 		}
 		defer proxy.Close()
-		target = proxy.Stream(s)
+		req.URL = proxy.Stream(s)
+		req.Headers = nil // the proxy adds them
 		subURL = func(u string) string { return proxy.URL(u, s.Headers) }
-	} else if len(s.Headers) > 0 {
-		keys := make([]string, 0, len(s.Headers))
-		for k := range s.Headers {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		fields := make([]string, 0, len(keys))
-		for _, k := range keys {
-			fields = append(fields, k+": "+s.Headers[k])
-		}
-		args = append(args, "--http-header-fields="+strings.Join(fields, ","))
 	}
 	for _, sub := range s.Subtitles {
-		args = append(args, "--sub-file="+subURL(sub.URL))
-	}
-	if s.AudioLang != "" {
-		args = append(args, "--alang="+s.AudioLang)
+		req.Subtitles = append(req.Subtitles, subURL(sub.URL))
 	}
 
-	mpv := app.Config.Player.MpvPath
-	if mpv == "" {
-		mpv = "mpv"
+	pb, err := player.New(player.Options{
+		MpvPath:   app.Config.Player.MpvPath,
+		ExtraArgs: app.Config.Player.ExtraArgs,
+	}).Play(ctx, req)
+	if err != nil {
+		return err
 	}
-	args = append(args, app.Config.Player.ExtraArgs...)
-	args = append(args, target)
-	c := exec.CommandContext(ctx, mpv, args...)
-	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
-	return c.Run()
+	defer pb.Close()
+	go func() {
+		<-ctx.Done()
+		pb.Close()
+	}()
+
+	if err := pb.BindKey(ctx, "F2", "anitui-debug"); err != nil {
+		slog.Warn("keybind failed", "err", err)
+	}
+	fmt.Fprintln(os.Stderr, "Connected to mpv. Press F2 in mpv to test the key binding.")
+
+	var lastPrint time.Time
+	for e := range pb.Events() {
+		slog.Debug("mpv event", "kind", e.Kind, "pos", e.Position, "dur", e.Duration, "paused", e.Paused, "reason", e.Reason, "args", e.Args)
+		switch e.Kind {
+		case player.EventPosition:
+			if time.Since(lastPrint) >= time.Second {
+				lastPrint = time.Now()
+				fmt.Fprintf(os.Stderr, "\r%s / %s   ", clock(e.Position), clock(e.Duration))
+			}
+		case player.EventPause:
+			if e.Paused {
+				fmt.Fprintf(os.Stderr, "\r%s / %s (paused)", clock(e.Position), clock(e.Duration))
+			}
+		case player.EventMessage:
+			fmt.Fprintf(os.Stderr, "\rkey binding received: %v\n", e.Args)
+			pb.ShowText(ctx, "anitui: key binding works", 2*time.Second)
+		case player.EventEndFile:
+			fmt.Fprintf(os.Stderr, "\nplayback ended: %s\n", e.Reason)
+		}
+	}
+	waitErr := pb.Wait()
+	st := pb.State()
+	if st.Duration > 0 {
+		fmt.Fprintf(os.Stderr, "Stopped at %s of %s (%.0f%%)\n", clock(st.Position), clock(st.Duration), 100*st.Position.Seconds()/st.Duration.Seconds())
+	}
+	if ctx.Err() != nil {
+		return nil // interrupted by the user
+	}
+	return waitErr
+}
+
+func clock(d time.Duration) string {
+	d = d.Round(time.Second)
+	h, m, sec := int(d.Hours()), int(d.Minutes())%60, int(d.Seconds())%60
+	if h > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", h, m, sec)
+	}
+	return fmt.Sprintf("%02d:%02d", m, sec)
 }
 
 func printJSON(v any) error {

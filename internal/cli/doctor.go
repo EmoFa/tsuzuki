@@ -8,6 +8,8 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
+
+	"github.com/EmoFa/anitui/internal/player"
 )
 
 type check struct {
@@ -37,7 +39,11 @@ func newDoctorCmd(app *App) *cobra.Command {
 				checks = append(checks, check{"database", true, fmt.Sprintf("schema v%d, %s", v, app.Paths.Database())})
 			}
 
-			checks = append(checks, binaryCheck("mpv", app.Config.Player.MpvPath, "mpv"))
+			if mpv, err := player.FindMpv(app.Config.Player.MpvPath); err != nil {
+				checks = append(checks, check{"mpv", false, err.Error()})
+			} else {
+				checks = append(checks, check{"mpv", true, mpv})
+			}
 			checks = append(checks, binaryCheck("browser", app.Config.Browser.Path,
 				"chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "chrome", "msedge"))
 

@@ -3,6 +3,7 @@ module github.com/EmoFa/anitui
 go 1.27.1
 
 require (
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/go-rod/rod v0.116.2
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/spf13/cobra v1.10.2
