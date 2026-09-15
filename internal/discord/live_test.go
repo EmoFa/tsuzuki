@@ -10,11 +10,11 @@ import (
 )
 
 // TestLivePresence shows a sample activity in the running Discord client for a
-// few seconds. It needs ANITUI_DISCORD_CLIENT_ID because it's visible to others.
+// few seconds. It needs TSUZUKI_DISCORD_CLIENT_ID because it's visible to others.
 func TestLivePresence(t *testing.T) {
-	id := os.Getenv("ANITUI_DISCORD_CLIENT_ID")
+	id := os.Getenv("TSUZUKI_DISCORD_CLIENT_ID")
 	if id == "" {
-		t.Skip("set ANITUI_DISCORD_CLIENT_ID to show a test presence")
+		t.Skip("set TSUZUKI_DISCORD_CLIENT_ID to show a test presence")
 	}
 	ctx := context.Background()
 	c, err := Dial(ctx, id)

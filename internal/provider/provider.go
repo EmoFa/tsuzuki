@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/EmoFa/anitui/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/domain"
 )
 
 type Provider interface {

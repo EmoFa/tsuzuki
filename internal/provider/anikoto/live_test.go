@@ -5,10 +5,10 @@ package anikoto
 import (
 	"testing"
 
-	"github.com/EmoFa/anitui/internal/browser"
-	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/httpx"
-	"github.com/EmoFa/anitui/internal/provider/providertest"
+	"github.com/EmoFa/tsuzuki/internal/browser"
+	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/httpx"
+	"github.com/EmoFa/tsuzuki/internal/provider/providertest"
 )
 
 // TestLive needs Chrome/Chromium: stream URLs come from megaplay's player.

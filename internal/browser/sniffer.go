@@ -15,11 +15,11 @@ import (
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 
-	"github.com/EmoFa/anitui/internal/procfs"
+	"github.com/EmoFa/tsuzuki/internal/procfs"
 )
 
 // Sniffer loads pages in a shared headless browser and reports the network
-// requests they make. It lets anitui run a site's own player when the stream URL
+// requests they make. It lets tsuzuki run a site's own player when the stream URL
 // is only produced by obfuscated JavaScript.
 type Sniffer struct {
 	BinPath      string
@@ -207,8 +207,8 @@ func (s *Sniffer) ensure(ctx context.Context) (*rod.Browser, error) {
 	if err != nil {
 		return nil, err
 	}
-	procfs.SweepStale(os.TempDir(), "anitui-sniffer-") // profiles of killed runs
-	dir, err := os.MkdirTemp("", procfs.Name("anitui-sniffer-"))
+	procfs.SweepStale(os.TempDir(), "tsuzuki-sniffer-") // profiles of killed runs
+	dir, err := os.MkdirTemp("", procfs.Name("tsuzuki-sniffer-"))
 	if err != nil {
 		return nil, err
 	}

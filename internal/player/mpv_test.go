@@ -21,7 +21,7 @@ func TestRealMpv(t *testing.T) {
 	p := New(Options{ExtraArgs: []string{"--no-config", "--vo=null", "--ao=null"}})
 	pb, err := p.Play(ctx, Request{
 		URL:   "av://lavfi:testsrc=duration=4:size=160x90:rate=25",
-		Title: "anitui test",
+		Title: "tsuzuki test",
 		Start: time.Second,
 	})
 	if err != nil {
@@ -29,11 +29,11 @@ func TestRealMpv(t *testing.T) {
 	}
 	defer pb.Close()
 
-	if err := pb.BindKey(ctx, "Ctrl+x", "anitui-test"); err != nil {
+	if err := pb.BindKey(ctx, "Ctrl+x", "tsuzuki-test"); err != nil {
 		t.Errorf("keybind: %v", err)
 	}
 	title, err := pb.Command(ctx, "get_property", "force-media-title")
-	if err != nil || string(title) != `"anitui test"` {
+	if err != nil || string(title) != `"tsuzuki test"` {
 		t.Errorf("title=%s err=%v", title, err)
 	}
 

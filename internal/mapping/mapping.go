@@ -14,10 +14,10 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/EmoFa/anitui/internal/anilist"
-	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/provider"
-	"github.com/EmoFa/anitui/internal/store"
+	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/provider"
+	"github.com/EmoFa/tsuzuki/internal/store"
 )
 
 var ErrNoMatch = errors.New("no matching show")

@@ -1,4 +1,4 @@
-# anitui configuration
+# tsuzuki configuration
 # Every key is optional; anything omitted falls back to the value shown here.
 
 [general]
@@ -38,9 +38,9 @@ auto_download = false
 
 [tracking]
 # "anilist": keep your list locally and sync it to AniList whenever you're logged
-# in (`anitui login`). "local": never send anything to AniList.
+# in (`tsuzuki login`). "local": never send anything to AniList.
 backend = "anilist"
-# AniList API client ID used by `anitui login`. 0 uses anitui's own client.
+# AniList API client ID used by `tsuzuki login`. 0 uses tsuzuki's own client.
 anilist_client_id = 0
 
 [skip]

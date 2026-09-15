@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-rod/rod/lib/launcher"
 
-	"github.com/EmoFa/anitui/internal/browser"
+	"github.com/EmoFa/tsuzuki/internal/browser"
 )
 
 // TestCallbackPageInRealBrowser checks the page's script really forwards the

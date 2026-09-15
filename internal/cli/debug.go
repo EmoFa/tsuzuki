@@ -12,11 +12,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/player"
-	"github.com/EmoFa/anitui/internal/provider"
-	"github.com/EmoFa/anitui/internal/session"
-	"github.com/EmoFa/anitui/internal/store"
+	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/player"
+	"github.com/EmoFa/tsuzuki/internal/provider"
+	"github.com/EmoFa/tsuzuki/internal/session"
+	"github.com/EmoFa/tsuzuki/internal/store"
 )
 
 // newDebugCmd exposes each layer on its own so providers can be checked
@@ -220,7 +220,7 @@ func playDebug(ctx context.Context, app *App, s domain.Stream, title string, sta
 		pb.Close()
 	}()
 
-	if err := pb.BindKey(ctx, "F2", "anitui-debug"); err != nil {
+	if err := pb.BindKey(ctx, "F2", "tsuzuki-debug"); err != nil {
 		slog.Warn("keybind failed", "err", err)
 	}
 	fmt.Fprintln(os.Stderr, "Connected to mpv. Press F2 in mpv to test the key binding.")
@@ -240,7 +240,7 @@ func playDebug(ctx context.Context, app *App, s domain.Stream, title string, sta
 			}
 		case player.EventMessage:
 			fmt.Fprintf(os.Stderr, "\rkey binding received: %v\n", e.Args)
-			pb.ShowText(ctx, "anitui: key binding works", 2*time.Second)
+			pb.ShowText(ctx, "tsuzuki: key binding works", 2*time.Second)
 		case player.EventEndFile:
 			fmt.Fprintf(os.Stderr, "\nplayback ended: %s\n", e.Reason)
 		}

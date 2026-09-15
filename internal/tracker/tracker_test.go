@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/EmoFa/anitui/internal/anilist"
-	"github.com/EmoFa/anitui/internal/store"
+	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/store"
 )
 
 var frieren2 = anilist.Media{ID: 182255, Episodes: 10}

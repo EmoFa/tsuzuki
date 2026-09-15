@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/EmoFa/anitui/internal/anilist"
-	"github.com/EmoFa/anitui/internal/session"
+	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/session"
 )
 
 // Observer turns playback updates from a session into presence activities.

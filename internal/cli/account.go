@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/EmoFa/anitui/internal/auth"
-	"github.com/EmoFa/anitui/internal/tracker"
+	"github.com/EmoFa/tsuzuki/internal/auth"
+	"github.com/EmoFa/tsuzuki/internal/tracker"
 )
 
 func newLoginCmd(app *App) *cobra.Command {
@@ -22,7 +22,7 @@ func newLoginCmd(app *App) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name, err := login(cmd.Context(), app, func(url string) {
-				fmt.Fprintf(os.Stderr, "Opening AniList in your browser to approve anitui…\nIf nothing opens, visit:\n  %s\n", url)
+				fmt.Fprintf(os.Stderr, "Opening AniList in your browser to approve tsuzuki…\nIf nothing opens, visit:\n  %s\n", url)
 			})
 			if err != nil {
 				return err
@@ -108,9 +108,9 @@ func newWhoamiCmd(app *App) *cobra.Command {
 			}
 			switch {
 			case tok == nil:
-				fmt.Fprintln(out, "Not logged in to AniList. Run `anitui login`.")
+				fmt.Fprintln(out, "Not logged in to AniList. Run `tsuzuki login`.")
 			case !tok.Valid():
-				fmt.Fprintf(out, "AniList login for %s has expired. Run `anitui login`.\n", tok.UserName)
+				fmt.Fprintf(out, "AniList login for %s has expired. Run `tsuzuki login`.\n", tok.UserName)
 			default:
 				fmt.Fprintf(out, "Logged in to AniList as %s", tok.UserName)
 				if !tok.ExpiresAt.IsZero() {
@@ -155,7 +155,7 @@ func syncList(ctx context.Context, app *App) (string, error) {
 		if app.Config.Tracking.Backend != "anilist" {
 			return "", errors.New(`tracking.backend is "local"; nothing to sync`)
 		}
-		return "", errors.New("not logged in to AniList; run `anitui login`")
+		return "", errors.New("not logged in to AniList; run `tsuzuki login`")
 	}
 	sent, err := t.Flush(ctx)
 	if err != nil {

@@ -14,7 +14,7 @@ Verified live 2026-09-15. Curd was used as a starting hint only.
 - `kwik.cx` embeds need `Referer: https://animepahe.pw/` but no cookies.
 - Stream CDN (`vault-NN.uwucdn.top`) returns `403` to **any HTTP/1.1 request**,
   regardless of UA/Referer. HTTP/2 with `Referer: https://kwik.cx/` works. mpv/ffmpeg
-  only speak HTTP/1.1, so playback goes through anitui's local stream proxy.
+  only speak HTTP/1.1, so playback goes through tsuzuki's local stream proxy.
 
 ## Endpoints
 | Purpose | Request | Notes |

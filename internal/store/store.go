@@ -1,4 +1,4 @@
-// Package store owns anitui's SQLite database and its schema migrations.
+// Package store owns tsuzuki's SQLite database and its schema migrations.
 package store
 
 import (
@@ -100,7 +100,7 @@ func (s *Store) migrate(ctx context.Context) error {
 		return err
 	}
 	if current > len(ms) {
-		return fmt.Errorf("database schema v%d is newer than this build (v%d); upgrade anitui", current, len(ms))
+		return fmt.Errorf("database schema v%d is newer than this build (v%d); upgrade tsuzuki", current, len(ms))
 	}
 	for _, m := range ms[current:] {
 		body, err := migrationFS.ReadFile("migrations/" + m.name)

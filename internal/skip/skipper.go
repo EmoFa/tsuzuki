@@ -4,7 +4,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/EmoFa/anitui/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/domain"
 )
 
 // Actions from config.

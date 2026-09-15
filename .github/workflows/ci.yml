@@ -42,7 +42,7 @@ jobs:
       - name: Test
         run: go test -race ./...
       - name: Build
-        run: go build -trimpath ./cmd/anitui
+        run: go build -trimpath ./cmd/tsuzuki
 
   snapshot:
     runs-on: ubuntu-latest
@@ -57,3 +57,7 @@ jobs:
         with:
           version: "~> v2"
           args: release --snapshot --clean --skip=before
+        env:
+          # Snapshots never publish; the package steps only need the variables set.
+          PACKAGES_GITHUB_TOKEN: unused
+          AUR_SSH_KEY: unused

@@ -6,9 +6,9 @@ import (
 	"runtime"
 )
 
-const appName = "anitui"
+const appName = "tsuzuki"
 
-// Paths holds every on-disk location anitui uses.
+// Paths holds every on-disk location tsuzuki uses.
 type Paths struct {
 	ConfigDir string // config.toml, auth token
 	DataDir   string // database
@@ -16,11 +16,11 @@ type Paths struct {
 }
 
 func (p Paths) ConfigFile() string { return filepath.Join(p.ConfigDir, "config.toml") }
-func (p Paths) Database() string   { return filepath.Join(p.DataDir, "anitui.db") }
-func (p Paths) LogFile() string    { return filepath.Join(p.CacheDir, "anitui.log") }
+func (p Paths) Database() string   { return filepath.Join(p.DataDir, "tsuzuki.db") }
+func (p Paths) LogFile() string    { return filepath.Join(p.CacheDir, "tsuzuki.log") }
 
 // ResolvePaths returns platform-appropriate directories. Each can be
-// overridden with ANITUI_CONFIG_DIR, ANITUI_DATA_DIR or ANITUI_CACHE_DIR.
+// overridden with TSUZUKI_CONFIG_DIR, TSUZUKI_DATA_DIR or TSUZUKI_CACHE_DIR.
 func ResolvePaths() (Paths, error) {
 	configBase, err := os.UserConfigDir()
 	if err != nil {
@@ -35,9 +35,9 @@ func ResolvePaths() (Paths, error) {
 		return Paths{}, err
 	}
 	return Paths{
-		ConfigDir: envOr("ANITUI_CONFIG_DIR", filepath.Join(configBase, appName)),
-		DataDir:   envOr("ANITUI_DATA_DIR", filepath.Join(dataBase, appName)),
-		CacheDir:  envOr("ANITUI_CACHE_DIR", filepath.Join(cacheBase, appName)),
+		ConfigDir: envOr("TSUZUKI_CONFIG_DIR", filepath.Join(configBase, appName)),
+		DataDir:   envOr("TSUZUKI_DATA_DIR", filepath.Join(dataBase, appName)),
+		CacheDir:  envOr("TSUZUKI_CACHE_DIR", filepath.Join(cacheBase, appName)),
 	}, nil
 }
 

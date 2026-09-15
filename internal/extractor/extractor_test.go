@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/EmoFa/anitui/internal/browser"
-	"github.com/EmoFa/anitui/internal/httpx"
+	"github.com/EmoFa/tsuzuki/internal/browser"
+	"github.com/EmoFa/tsuzuki/internal/httpx"
 )
 
 func TestKwikSourceFixture(t *testing.T) {

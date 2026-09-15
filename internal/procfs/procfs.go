@@ -1,4 +1,4 @@
-// Package procfs cleans up temporary files that anitui processes create with
+// Package procfs cleans up temporary files that tsuzuki processes create with
 // their PID in the name, once those processes are gone (killed or crashed).
 package procfs
 

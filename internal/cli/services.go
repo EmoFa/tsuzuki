@@ -9,24 +9,24 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/EmoFa/anitui/internal/anilist"
-	"github.com/EmoFa/anitui/internal/auth"
-	"github.com/EmoFa/anitui/internal/browser"
-	"github.com/EmoFa/anitui/internal/discord"
-	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/httpx"
-	"github.com/EmoFa/anitui/internal/mapping"
-	"github.com/EmoFa/anitui/internal/player"
-	"github.com/EmoFa/anitui/internal/provider"
-	"github.com/EmoFa/anitui/internal/provider/allanime"
-	"github.com/EmoFa/anitui/internal/provider/anikoto"
-	"github.com/EmoFa/anitui/internal/provider/animepahe"
-	"github.com/EmoFa/anitui/internal/provider/senshi"
-	"github.com/EmoFa/anitui/internal/session"
-	"github.com/EmoFa/anitui/internal/skip"
-	"github.com/EmoFa/anitui/internal/streamcheck"
-	"github.com/EmoFa/anitui/internal/streamproxy"
-	"github.com/EmoFa/anitui/internal/tracker"
+	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/auth"
+	"github.com/EmoFa/tsuzuki/internal/browser"
+	"github.com/EmoFa/tsuzuki/internal/discord"
+	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/httpx"
+	"github.com/EmoFa/tsuzuki/internal/mapping"
+	"github.com/EmoFa/tsuzuki/internal/player"
+	"github.com/EmoFa/tsuzuki/internal/provider"
+	"github.com/EmoFa/tsuzuki/internal/provider/allanime"
+	"github.com/EmoFa/tsuzuki/internal/provider/anikoto"
+	"github.com/EmoFa/tsuzuki/internal/provider/animepahe"
+	"github.com/EmoFa/tsuzuki/internal/provider/senshi"
+	"github.com/EmoFa/tsuzuki/internal/session"
+	"github.com/EmoFa/tsuzuki/internal/skip"
+	"github.com/EmoFa/tsuzuki/internal/streamcheck"
+	"github.com/EmoFa/tsuzuki/internal/streamproxy"
+	"github.com/EmoFa/tsuzuki/internal/tracker"
 )
 
 // HTTP returns the shared scraping client, with browser-based challenge solving
@@ -90,7 +90,7 @@ func (a *App) AniList(ctx context.Context) (*anilist.Client, error) {
 	}
 	a.anilist = anilist.New(client, st)
 	// Development only: point at a fake AniList to test syncing without an account.
-	if u := os.Getenv("ANITUI_ANILIST_API"); u != "" {
+	if u := os.Getenv("TSUZUKI_ANILIST_API"); u != "" {
 		a.anilist = a.anilist.WithURL(u)
 	}
 	return a.anilist, nil
@@ -108,7 +108,7 @@ func (a *App) Mapper(ctx context.Context) (*mapping.Mapper, error) {
 	return a.mapper, nil
 }
 
-// DefaultAniListClientID is anitui's registered AniList API client, whose
+// DefaultAniListClientID is tsuzuki's registered AniList API client, whose
 // redirect URL is auth.RedirectURL. tracking.anilist_client_id overrides it.
 const DefaultAniListClientID = 51172
 
@@ -179,7 +179,7 @@ func (a *App) trackWatched(ctx context.Context, media anilist.Media, episode flo
 		return "", err
 	}
 	if errors.Is(r.SyncErr, anilist.ErrUnauthorized) {
-		return "list updated; AniList login expired, run `anitui login` to sync", nil
+		return "list updated; AniList login expired, run `tsuzuki login` to sync", nil
 	}
 	return r.Note(), nil
 }
@@ -237,7 +237,7 @@ func (a *App) Session(ctx context.Context, onStatus func(session.Status)) (*sess
 	}), nil
 }
 
-// DefaultDiscordClientID is anitui's Discord application, whose name Discord
+// DefaultDiscordClientID is tsuzuki's Discord application, whose name Discord
 // shows as "Watching <name>". discord.client_id overrides it.
 const DefaultDiscordClientID = "1549464164995563550"
 

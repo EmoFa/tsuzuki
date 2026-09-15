@@ -17,10 +17,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/hls"
-	"github.com/EmoFa/anitui/internal/httpx"
-	"github.com/EmoFa/anitui/internal/provider"
+	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/hls"
+	"github.com/EmoFa/tsuzuki/internal/httpx"
+	"github.com/EmoFa/tsuzuki/internal/provider"
 )
 
 const (

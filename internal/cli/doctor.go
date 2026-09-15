@@ -14,15 +14,15 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/EmoFa/anitui/internal/anilist"
-	"github.com/EmoFa/anitui/internal/browser"
-	"github.com/EmoFa/anitui/internal/discord"
-	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/httpx"
-	"github.com/EmoFa/anitui/internal/player"
-	"github.com/EmoFa/anitui/internal/provider"
-	"github.com/EmoFa/anitui/internal/skip"
-	"github.com/EmoFa/anitui/internal/streamcheck"
+	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/browser"
+	"github.com/EmoFa/tsuzuki/internal/discord"
+	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/httpx"
+	"github.com/EmoFa/tsuzuki/internal/player"
+	"github.com/EmoFa/tsuzuki/internal/provider"
+	"github.com/EmoFa/tsuzuki/internal/skip"
+	"github.com/EmoFa/tsuzuki/internal/streamcheck"
 )
 
 type checkStatus int
@@ -45,7 +45,7 @@ func newDoctorCmd(app *App) *cobra.Command {
 	var timeout time.Duration
 	cmd := &cobra.Command{
 		Use:   "doctor",
-		Short: "Check that anitui's dependencies, services and providers are working",
+		Short: "Check that tsuzuki's dependencies, services and providers are working",
 		Long: `Checks the config, database, mpv, browser, Discord and AniList login, then
 AniList, the skip-time and filler services, and a search on every configured
 provider. With --streams it also resolves an episode from each provider and
@@ -82,7 +82,7 @@ that needs one is reported so you can verify it by watching something.`,
 }
 
 func localChecks(ctx context.Context, app *App) []check {
-	checks := []check{{"anitui", statusOK, fmt.Sprintf("%s, %s/%s", versionString(), runtime.GOOS, runtime.GOARCH)}}
+	checks := []check{{"tsuzuki", statusOK, fmt.Sprintf("%s, %s/%s", versionString(), runtime.GOOS, runtime.GOARCH)}}
 	if _, err := os.Stat(app.ConfigPath); err == nil {
 		checks = append(checks, check{"config", statusOK, app.ConfigPath})
 	} else {
@@ -117,7 +117,7 @@ func localChecks(ctx context.Context, app *App) []check {
 	checks = append(checks, discordCheck(ctx, app), accountCheck(app))
 	if st != nil {
 		if pending, err := st.PendingSyncs(ctx); err == nil && len(pending) > 0 {
-			checks = append(checks, check{"sync queue", statusWarn, fmt.Sprintf("%d list change(s) not sent to AniList yet; last error: %s (run `anitui sync`)",
+			checks = append(checks, check{"sync queue", statusWarn, fmt.Sprintf("%d list change(s) not sent to AniList yet; last error: %s (run `tsuzuki sync`)",
 				len(pending), firstLineOf(pending[len(pending)-1].LastError))})
 		}
 		if list, err := st.Clearances(ctx); err == nil {
@@ -162,11 +162,11 @@ func accountCheck(app *App) check {
 	case backend == "local":
 		return check{"anilist login", statusOK, "not used (tracking.backend = local)"}
 	case tok == nil:
-		return check{"anilist login", statusWarn, "not logged in: progress is kept locally until you run `anitui login`"}
+		return check{"anilist login", statusWarn, "not logged in: progress is kept locally until you run `tsuzuki login`"}
 	case !tok.Valid():
-		return check{"anilist login", statusWarn, "login for " + tok.UserName + " expired: run `anitui login`"}
+		return check{"anilist login", statusWarn, "login for " + tok.UserName + " expired: run `tsuzuki login`"}
 	case !tok.ExpiresAt.IsZero() && time.Until(tok.ExpiresAt) < 14*24*time.Hour:
-		return check{"anilist login", statusWarn, fmt.Sprintf("%s, expires %s: run `anitui login` soon", tok.UserName, tok.ExpiresAt.Format("2006-01-02"))}
+		return check{"anilist login", statusWarn, fmt.Sprintf("%s, expires %s: run `tsuzuki login` soon", tok.UserName, tok.ExpiresAt.Format("2006-01-02"))}
 	}
 	detail := "logged in as " + tok.UserName
 	if !tok.ExpiresAt.IsZero() {
@@ -210,7 +210,7 @@ func serviceChecks(ctx context.Context, app *App, timeout time.Duration) []check
 			}
 			user, err := al.WithToken(tok.AccessToken).Viewer(ctx)
 			if errors.Is(err, anilist.ErrUnauthorized) {
-				return "", errors.New("reachable, but AniList rejected your login: run `anitui login`")
+				return "", errors.New("reachable, but AniList rejected your login: run `tsuzuki login`")
 			}
 			if err != nil {
 				return "", err

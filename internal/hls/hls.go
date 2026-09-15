@@ -1,4 +1,4 @@
-// Package hls handles the parts of HLS playlists anitui needs to touch.
+// Package hls handles the parts of HLS playlists tsuzuki needs to touch.
 package hls
 
 import (

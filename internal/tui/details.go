@@ -10,11 +10,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/EmoFa/anitui/internal/anilist"
-	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/session"
-	"github.com/EmoFa/anitui/internal/skip"
-	"github.com/EmoFa/anitui/internal/store"
+	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/session"
+	"github.com/EmoFa/tsuzuki/internal/skip"
+	"github.com/EmoFa/tsuzuki/internal/store"
 )
 
 type detailsProgressMsg struct {

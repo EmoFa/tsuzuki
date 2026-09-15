@@ -215,10 +215,10 @@ func TestBuildArgs(t *testing.T) {
 		Headers:   map[string]string{"Referer": "https://a/", "Origin": "https://a,b"},
 		Subtitles: []string{"http://x/sub_en.ass"},
 		AudioLang: "ja",
-	}, "/run/anitui.sock", Options{ExtraArgs: []string{"--fullscreen"}})
+	}, "/run/tsuzuki.sock", Options{ExtraArgs: []string{"--fullscreen"}})
 
 	want := []string{
-		"--input-ipc-server=/run/anitui.sock",
+		"--input-ipc-server=/run/tsuzuki.sock",
 		"--no-terminal",
 		"--force-media-title=Frieren - Episode 1",
 		"--start=83.500",

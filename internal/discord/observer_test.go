@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EmoFa/anitui/internal/anilist"
-	"github.com/EmoFa/anitui/internal/session"
+	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/session"
 )
 
 type recorder struct{ sets []*Activity }

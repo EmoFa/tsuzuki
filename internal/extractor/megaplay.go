@@ -9,9 +9,9 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/EmoFa/anitui/internal/browser"
-	"github.com/EmoFa/anitui/internal/hls"
-	"github.com/EmoFa/anitui/internal/httpx"
+	"github.com/EmoFa/tsuzuki/internal/browser"
+	"github.com/EmoFa/tsuzuki/internal/hls"
+	"github.com/EmoFa/tsuzuki/internal/httpx"
 )
 
 // MegaplayOrigin is the Referer megaplay's CDNs require for playlists,

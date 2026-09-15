@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/EmoFa/anitui/internal/httpx"
+	"github.com/EmoFa/tsuzuki/internal/httpx"
 )
 
 var kwikSource = regexp.MustCompile(`source\s*=\s*['"](https?://[^'"]+\.m3u8[^'"]*)['"]`)

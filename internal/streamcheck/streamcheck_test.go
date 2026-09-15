@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/httpx"
+	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/httpx"
 )
 
 // server serves a small HLS tree. Segment responses can be switched to failures.

@@ -5,7 +5,7 @@
 // browser window opens with no automation attached (Turnstile rejects
 // DevTools-controlled browsers even when a human clicks), the user completes
 // the check and closes the window, and the cookies are then read back from the
-// shared profile. anitui never clicks a verification checkbox itself.
+// shared profile. tsuzuki never clicks a verification checkbox itself.
 package browser
 
 import (
@@ -28,8 +28,8 @@ import (
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 
-	"github.com/EmoFa/anitui/internal/httpx"
-	"github.com/EmoFa/anitui/internal/procfs"
+	"github.com/EmoFa/tsuzuki/internal/httpx"
+	"github.com/EmoFa/tsuzuki/internal/procfs"
 )
 
 var ErrNoBrowser = errors.New("no usable Chrome/Chromium: install one or set browser.path in the config")
@@ -111,7 +111,7 @@ func (s *Solver) findBinary() (string, error) {
 	return findBinary(s.BinPath, s.AutoDownload, s.DownloadDir, s.Notify)
 }
 
-// FindBinary resolves the Chrome/Chromium anitui would use, without downloading.
+// FindBinary resolves the Chrome/Chromium tsuzuki would use, without downloading.
 func FindBinary(configured string) (string, error) {
 	return findBinary(configured, false, "", nil)
 }

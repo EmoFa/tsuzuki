@@ -1,4 +1,4 @@
-// Package cli wires anitui's commands together.
+// Package cli wires tsuzuki's commands together.
 package cli
 
 import (
@@ -10,22 +10,22 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/EmoFa/anitui/internal/anilist"
-	"github.com/EmoFa/anitui/internal/browser"
-	"github.com/EmoFa/anitui/internal/buildinfo"
-	"github.com/EmoFa/anitui/internal/config"
-	"github.com/EmoFa/anitui/internal/discord"
-	"github.com/EmoFa/anitui/internal/httpx"
-	"github.com/EmoFa/anitui/internal/logx"
-	"github.com/EmoFa/anitui/internal/mapping"
-	"github.com/EmoFa/anitui/internal/store"
-	"github.com/EmoFa/anitui/internal/streamproxy"
-	"github.com/EmoFa/anitui/internal/tracker"
+	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/browser"
+	"github.com/EmoFa/tsuzuki/internal/buildinfo"
+	"github.com/EmoFa/tsuzuki/internal/config"
+	"github.com/EmoFa/tsuzuki/internal/discord"
+	"github.com/EmoFa/tsuzuki/internal/httpx"
+	"github.com/EmoFa/tsuzuki/internal/logx"
+	"github.com/EmoFa/tsuzuki/internal/mapping"
+	"github.com/EmoFa/tsuzuki/internal/store"
+	"github.com/EmoFa/tsuzuki/internal/streamproxy"
+	"github.com/EmoFa/tsuzuki/internal/tracker"
 )
 
 // skipConfigAnnotation marks commands that must work even when the config file
 // is invalid (e.g. so the user can fix it with `config edit`).
-const skipConfigAnnotation = "anitui/skip-config"
+const skipConfigAnnotation = "tsuzuki/skip-config"
 
 // App is the shared state handed to every command.
 type App struct {
@@ -86,7 +86,7 @@ func NewRootCmd() (*cobra.Command, *App) {
 	var debug bool
 
 	root := &cobra.Command{
-		Use:           "anitui",
+		Use:           "tsuzuki",
 		Short:         "Watch anime from your terminal",
 		Version:       buildinfo.Version,
 		SilenceUsage:  true,
@@ -111,7 +111,7 @@ func NewRootCmd() (*cobra.Command, *App) {
 			if cmd.Annotations[skipConfigAnnotation] == "" {
 				cfg, _, err := config.Load(app.ConfigPath)
 				if err != nil {
-					return fmt.Errorf("invalid config (fix with `anitui config edit`):\n%w", err)
+					return fmt.Errorf("invalid config (fix with `tsuzuki config edit`):\n%w", err)
 				}
 				app.Config = cfg
 			}
@@ -144,7 +144,7 @@ func NewRootCmd() (*cobra.Command, *App) {
 }
 
 func versionString() string {
-	s := "anitui " + buildinfo.Version
+	s := "tsuzuki " + buildinfo.Version
 	if buildinfo.Commit != "" {
 		commit := buildinfo.Commit
 		if len(commit) > 12 {

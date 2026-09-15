@@ -16,7 +16,7 @@ import (
 func ipcAddress() (string, error) {
 	b := make([]byte, 6)
 	rand.Read(b)
-	return fmt.Sprintf(`\\.\pipe\anitui-mpv-%d-%s`, os.Getpid(), hex.EncodeToString(b)), nil
+	return fmt.Sprintf(`\\.\pipe\tsuzuki-mpv-%d-%s`, os.Getpid(), hex.EncodeToString(b)), nil
 }
 
 func dialIPC(ctx context.Context, addr string) (net.Conn, error) {

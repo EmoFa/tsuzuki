@@ -23,3 +23,8 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Classic token with public_repo: pushes to EmoFa/homebrew-tap and
+          # EmoFa/winget-pkgs, and opens the winget pull request.
+          PACKAGES_GITHUB_TOKEN: ${{ secrets.PACKAGES_GITHUB_TOKEN }}
+          # SSH private key registered with the AUR account that owns tsuzuki-bin.
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}

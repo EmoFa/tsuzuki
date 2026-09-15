@@ -11,8 +11,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/EmoFa/anitui/internal/anilist"
-	"github.com/EmoFa/anitui/internal/store"
+	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/store"
 )
 
 var (

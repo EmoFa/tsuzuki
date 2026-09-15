@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/EmoFa/anitui/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/domain"
 )
 
 type healthFake struct {

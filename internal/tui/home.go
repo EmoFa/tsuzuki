@@ -8,11 +8,11 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/EmoFa/anitui/internal/anilist"
-	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/session"
-	"github.com/EmoFa/anitui/internal/store"
-	"github.com/EmoFa/anitui/internal/tracker"
+	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/session"
+	"github.com/EmoFa/tsuzuki/internal/store"
+	"github.com/EmoFa/tsuzuki/internal/tracker"
 )
 
 const recentLimit = 30

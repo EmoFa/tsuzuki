@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/EmoFa/anitui/internal/procfs"
+	"github.com/EmoFa/tsuzuki/internal/procfs"
 )
 
 var ErrMpvNotFound = errors.New("mpv not found: install it (https://mpv.io/installation/) or set player.mpv_path in the config")
@@ -25,7 +25,7 @@ const connectTimeout = 15 * time.Second
 
 type Options struct {
 	MpvPath   string   // empty: search PATH and common install locations
-	ExtraArgs []string // appended after anitui's own arguments, so they win
+	ExtraArgs []string // appended after tsuzuki's own arguments, so they win
 	// Output receives mpv's terminal output. Nil disables mpv's terminal
 	// entirely, which the TUI needs.
 	Output io.Writer
@@ -65,7 +65,8 @@ func FindMpv(configured string) (string, error) {
 		candidates = []string{"/opt/homebrew/bin/mpv", "/usr/local/bin/mpv", "/Applications/mpv.app/Contents/MacOS/mpv"}
 	case "windows":
 		if dir := os.Getenv("ProgramFiles"); dir != "" {
-			candidates = append(candidates, dir+`\mpv\mpv.exe`)
+			// "MPV Player" is where winget's shinchiro.mpv installs, without adding it to PATH.
+			candidates = append(candidates, dir+`\mpv\mpv.exe`, dir+`\MPV Player\mpv.exe`)
 		}
 		if dir := os.Getenv("LocalAppData"); dir != "" {
 			candidates = append(candidates, dir+`\Programs\mpv\mpv.exe`)

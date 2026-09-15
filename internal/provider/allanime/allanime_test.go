@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/httpx"
-	"github.com/EmoFa/anitui/internal/provider/providertest"
+	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/httpx"
+	"github.com/EmoFa/tsuzuki/internal/provider/providertest"
 )
 
 // fixtureProvider serves fixtures chosen by which query the request body carries.

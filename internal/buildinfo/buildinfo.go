@@ -1,5 +1,5 @@
 // Package buildinfo exposes version metadata injected at build time via
-// -ldflags "-X github.com/EmoFa/anitui/internal/buildinfo.Version=...".
+// -ldflags "-X github.com/EmoFa/tsuzuki/internal/buildinfo.Version=...".
 package buildinfo
 
 import "runtime/debug"

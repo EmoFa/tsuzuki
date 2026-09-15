@@ -11,8 +11,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/EmoFa/anitui/internal/anilist"
-	"github.com/EmoFa/anitui/internal/store"
+	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/store"
 )
 
 // List statuses, matching AniList's MediaListStatus.

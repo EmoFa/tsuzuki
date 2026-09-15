@@ -8,7 +8,7 @@ import (
 
 func TestOpenMigratesAndIsIdempotent(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "nested", "anitui.db")
+	path := filepath.Join(t.TempDir(), "nested", "tsuzuki.db")
 
 	s, err := Open(ctx, path)
 	if err != nil {
@@ -46,7 +46,7 @@ func TestOpenMigratesAndIsIdempotent(t *testing.T) {
 
 func TestOpenRejectsNewerSchema(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "anitui.db")
+	path := filepath.Join(t.TempDir(), "tsuzuki.db")
 	s, err := Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)

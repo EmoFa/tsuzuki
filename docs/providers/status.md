@@ -19,5 +19,5 @@ and directories such as everythingmoe.com have delisted it.
 - A real DDoS-Guard challenge couldn't be triggered on demand; its test fixture is built from
   markers observed on live DDoS-Guard sites (`/.well-known/ddos-guard/js-challenge/`).
 - Clearances are stored per cookie domain, so subdomains share them.
-- `anitui debug clearances`, `debug clear-clearance <host>` and `debug reset-browser` help
+- `tsuzuki debug clearances`, `debug clear-clearance <host>` and `debug reset-browser` help
   when a site's verification gets stuck.

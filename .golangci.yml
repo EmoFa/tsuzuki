@@ -32,8 +32,8 @@ linters:
         - (*net/http.Server).Serve # returns when shut down
         - (net/http.ResponseWriter).Write # the client went away
         # On-screen messages are cosmetic.
-        - (*github.com/EmoFa/anitui/internal/player.Playback).ShowText
-        - (github.com/EmoFa/anitui/internal/session.Playback).ShowText
+        - (*github.com/EmoFa/tsuzuki/internal/player.Playback).ShowText
+        - (github.com/EmoFa/tsuzuki/internal/session.Playback).ShowText
   exclusions:
     presets:
       - std-error-handling

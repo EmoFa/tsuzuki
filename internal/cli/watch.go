@@ -14,9 +14,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/EmoFa/anitui/internal/anilist"
-	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/session"
+	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/session"
 )
 
 func newSearchCmd(app *App) *cobra.Command {
@@ -44,7 +44,7 @@ func newSearchCmd(app *App) *cobra.Command {
 				fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\n", m.ID, m.Format, episodesLabel(m), yearLabel(m.Year), m.DisplayTitle())
 			}
 			w.Flush()
-			fmt.Fprintln(cmd.OutOrStdout(), "\nWatch with: anitui watch <id> [episode]")
+			fmt.Fprintln(cmd.OutOrStdout(), "\nWatch with: tsuzuki watch <id> [episode]")
 			return nil
 		},
 	}
@@ -98,7 +98,7 @@ func newContinueCmd(app *App) *cobra.Command {
 				return err
 			}
 			if len(recent) == 0 {
-				return errors.New("nothing watched yet; find something with `anitui search`")
+				return errors.New("nothing watched yet; find something with `tsuzuki search`")
 			}
 			last := recent[0]
 			// Keep watching in the mode used last time unless told otherwise.

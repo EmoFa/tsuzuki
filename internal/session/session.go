@@ -14,12 +14,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/EmoFa/anitui/internal/anilist"
-	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/player"
-	"github.com/EmoFa/anitui/internal/provider"
-	"github.com/EmoFa/anitui/internal/skip"
-	"github.com/EmoFa/anitui/internal/store"
+	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/player"
+	"github.com/EmoFa/tsuzuki/internal/provider"
+	"github.com/EmoFa/tsuzuki/internal/skip"
+	"github.com/EmoFa/tsuzuki/internal/store"
 )
 
 const (
@@ -614,7 +614,7 @@ func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, m
 
 const (
 	skipKey     = "TAB"
-	skipMessage = "anitui-skip"
+	skipMessage = "tsuzuki-skip"
 )
 
 func (s *Session) lookupSkips(ctx context.Context, media anilist.Media, episode float64, length time.Duration, out chan<- []domain.SkipRange) {

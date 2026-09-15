@@ -1,5 +1,5 @@
 // Package anilist is a client for AniList's public GraphQL API. AniList media
-// IDs are anitui's canonical anime identity.
+// IDs are tsuzuki's canonical anime identity.
 package anilist
 
 import (
@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EmoFa/anitui/internal/httpx"
+	"github.com/EmoFa/tsuzuki/internal/httpx"
 )
 
 const DefaultURL = "https://graphql.anilist.co"

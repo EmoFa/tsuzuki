@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/hls"
-	"github.com/EmoFa/anitui/internal/httpx"
-	"github.com/EmoFa/anitui/internal/provider/providertest"
+	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/hls"
+	"github.com/EmoFa/tsuzuki/internal/httpx"
+	"github.com/EmoFa/tsuzuki/internal/provider/providertest"
 )
 
 func fixture(t *testing.T, name string) func(*http.Request) (*http.Response, error) {

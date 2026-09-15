@@ -1,4 +1,4 @@
-// Package config defines anitui's user configuration: its schema, defaults,
+// Package config defines tsuzuki's user configuration: its schema, defaults,
 // loading from TOML, and validation.
 package config
 
@@ -15,7 +15,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// Template is the commented config file written by `anitui config init`.
+// Template is the commented config file written by `tsuzuki config init`.
 // It must decode to exactly Default(); a test enforces this.
 //
 //go:embed default.toml

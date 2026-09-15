@@ -11,7 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/EmoFa/anitui/internal/session"
+	"github.com/EmoFa/tsuzuki/internal/session"
 )
 
 const (
@@ -326,7 +326,7 @@ func firstLine(s string) string {
 func (m *Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
-	v.WindowTitle = "anitui"
+	v.WindowTitle = "tsuzuki"
 	return v
 }
 
@@ -353,7 +353,7 @@ func (m *Model) header() string {
 	for _, s := range m.stack {
 		crumbs = append(crumbs, s.Title())
 	}
-	return styleBrand.Render("anitui") + styleMuted.Render("  ›  ") + truncate(strings.Join(crumbs, " › "), m.width-12)
+	return styleBrand.Render("tsuzuki") + styleMuted.Render("  ›  ") + truncate(strings.Join(crumbs, " › "), m.width-12)
 }
 
 func (m *Model) footer() string {
@@ -389,7 +389,7 @@ func (m *Model) helpView() string {
 	var b strings.Builder
 	b.WriteString(styleTitle.Render(m.top().Title()+" keys") + "\n\n")
 	for _, k := range append(m.top().Help(), keyHelp, keyBack, keyQuit,
-		key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit anitui"))) {
+		key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit tsuzuki"))) {
 		b.WriteString(styleKey.Render(padRight(k.Help().Key, 10)) + " " + k.Help().Desc + "\n")
 	}
 	b.WriteString("\n" + styleMuted.Render("press any key to close"))

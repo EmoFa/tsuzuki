@@ -7,11 +7,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/EmoFa/anitui/internal/cli"
+	"github.com/EmoFa/tsuzuki/internal/cli"
 )
 
 func main() {
-	// Interrupts, `kill` and a closed terminal all stop anitui the same way, so
+	// Interrupts, `kill` and a closed terminal all stop tsuzuki the same way, so
 	// mpv, the browser and temporary files are cleaned up.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	go func() {

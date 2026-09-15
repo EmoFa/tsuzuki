@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/EmoFa/anitui/internal/anilist"
-	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/session"
-	"github.com/EmoFa/anitui/internal/skip"
-	"github.com/EmoFa/anitui/internal/store"
-	"github.com/EmoFa/anitui/internal/tui"
+	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/session"
+	"github.com/EmoFa/tsuzuki/internal/skip"
+	"github.com/EmoFa/tsuzuki/internal/store"
+	"github.com/EmoFa/tsuzuki/internal/tui"
 )
 
 // runTUI starts the full-screen interface.

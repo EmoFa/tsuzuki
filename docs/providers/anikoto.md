@@ -7,7 +7,7 @@ Verified live 2026-09-15 on **anikototv.to**. First in the default provider orde
   The `vrf` query parameter the site sends is accepted empty; no cookies are needed.
 - Streams come from **megaplay.buzz** embeds. `stream/getSources` returns the HLS URL
   encrypted (`enc`), decrypted only by megaplay's obfuscated player script (key material
-  appears tied to a `stream/trustWatch` exchange). Rather than reimplementing that, anitui
+  appears tied to a `stream/trustWatch` exchange). Rather than reimplementing that, tsuzuki
   loads the embed in a shared headless Chromium (`browser.Sniffer`) and records the
   `getSources` response and the master `.m3u8` request. This takes about 1–2s including
   browser start-up.

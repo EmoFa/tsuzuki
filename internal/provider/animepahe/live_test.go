@@ -7,14 +7,14 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/EmoFa/anitui/internal/config"
-	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/httpx"
-	"github.com/EmoFa/anitui/internal/provider/providertest"
-	"github.com/EmoFa/anitui/internal/store"
+	"github.com/EmoFa/tsuzuki/internal/config"
+	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/httpx"
+	"github.com/EmoFa/tsuzuki/internal/provider/providertest"
+	"github.com/EmoFa/tsuzuki/internal/store"
 )
 
-// TestLive uses the clearance stored by a normal anitui run. It never opens a
+// TestLive uses the clearance stored by a normal tsuzuki run. It never opens a
 // browser: if Cloudflare challenges, it skips.
 func TestLive(t *testing.T) {
 	paths, err := config.ResolvePaths()
@@ -31,7 +31,7 @@ func TestLive(t *testing.T) {
 	if _, err := p.Search(context.Background(), "frieren", domain.Sub); err != nil {
 		var ce *httpx.ChallengeError
 		if errors.As(err, &ce) {
-			t.Skip("no valid Cloudflare clearance; run `anitui debug search animepahe frieren` first")
+			t.Skip("no valid Cloudflare clearance; run `tsuzuki debug search animepahe frieren` first")
 		}
 		t.Fatal(err)
 	}

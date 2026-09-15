@@ -12,12 +12,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/exp/teatest/v2"
 
-	"github.com/EmoFa/anitui/internal/anilist"
-	"github.com/EmoFa/anitui/internal/config"
-	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/session"
-	"github.com/EmoFa/anitui/internal/skip"
-	"github.com/EmoFa/anitui/internal/store"
+	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/config"
+	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/session"
+	"github.com/EmoFa/tsuzuki/internal/skip"
+	"github.com/EmoFa/tsuzuki/internal/store"
 )
 
 var frieren2 = anilist.Media{
@@ -254,7 +254,7 @@ func TestQuitKeysRespectTextInput(t *testing.T) {
 	_, cmd := m.Update(press("q"))
 	if cmd != nil {
 		if _, quit := cmd().(tea.QuitMsg); quit {
-			t.Fatal("typing q in the search box quit anitui")
+			t.Fatal("typing q in the search box quit tsuzuki")
 		}
 	}
 	if s.input.Value() != "q" {

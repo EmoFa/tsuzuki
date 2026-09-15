@@ -59,7 +59,7 @@ func TestDecodeErrors(t *testing.T) {
 		{"bad duration", "[providers]\nhealth_check_timeout = \"soon\"\n", []string{"line 2"}},
 		{
 			"invalid values reported together",
-			"[general]\nmode = \"raw\"\nwatched_threshold = 1.5\n[providers]\norder = [\"allanime\", \"allanime\", \"nyaa\"]\n[discord]\nclient_id = \"anitui\"\n",
+			"[general]\nmode = \"raw\"\nwatched_threshold = 1.5\n[providers]\norder = [\"allanime\", \"allanime\", \"nyaa\"]\n[discord]\nclient_id = \"tsuzuki\"\n",
 			[]string{"general.mode", "watched_threshold", "listed twice", `"nyaa"`, "discord.client_id"},
 		},
 	}
@@ -80,14 +80,14 @@ func TestDecodeErrors(t *testing.T) {
 }
 
 func TestResolvePathsEnvOverride(t *testing.T) {
-	t.Setenv("ANITUI_CONFIG_DIR", "/tmp/a")
-	t.Setenv("ANITUI_DATA_DIR", "/tmp/b")
-	t.Setenv("ANITUI_CACHE_DIR", "/tmp/c")
+	t.Setenv("TSUZUKI_CONFIG_DIR", "/tmp/a")
+	t.Setenv("TSUZUKI_DATA_DIR", "/tmp/b")
+	t.Setenv("TSUZUKI_CACHE_DIR", "/tmp/c")
 	p, err := ResolvePaths()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.ConfigFile() != filepath.Join("/tmp/a", "config.toml") || p.Database() != filepath.Join("/tmp/b", "anitui.db") || p.LogFile() != filepath.Join("/tmp/c", "anitui.log") {
+	if p.ConfigFile() != filepath.Join("/tmp/a", "config.toml") || p.Database() != filepath.Join("/tmp/b", "tsuzuki.db") || p.LogFile() != filepath.Join("/tmp/c", "tsuzuki.log") {
 		t.Fatalf("%+v", p)
 	}
 }

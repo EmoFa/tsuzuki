@@ -1,7 +1,7 @@
 # Release builds: `make snapshot` locally, or push a v* tag to publish via
 # .github/workflows/release.yml.
 version: 2
-project_name: anitui
+project_name: tsuzuki
 
 before:
   hooks:
@@ -9,9 +9,9 @@ before:
     - go test ./...
 
 builds:
-  - id: anitui
-    main: ./cmd/anitui
-    binary: anitui
+  - id: tsuzuki
+    main: ./cmd/tsuzuki
+    binary: tsuzuki
     env:
       - CGO_ENABLED=0
     goos: [linux, darwin, windows]
@@ -19,13 +19,13 @@ builds:
     flags: [-trimpath]
     ldflags:
       - -s -w
-      - -X github.com/EmoFa/anitui/internal/buildinfo.Version={{ .Version }}
-      - -X github.com/EmoFa/anitui/internal/buildinfo.Commit={{ .FullCommit }}
-      - -X github.com/EmoFa/anitui/internal/buildinfo.Date={{ .CommitDate }}
+      - -X github.com/EmoFa/tsuzuki/internal/buildinfo.Version={{ .Version }}
+      - -X github.com/EmoFa/tsuzuki/internal/buildinfo.Commit={{ .FullCommit }}
+      - -X github.com/EmoFa/tsuzuki/internal/buildinfo.Date={{ .CommitDate }}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
-  - id: anitui
+  - id: tsuzuki
     formats: [tar.gz]
     format_overrides:
       - goos: windows
@@ -38,19 +38,22 @@ archives:
 
 nfpms:
   - id: packages
-    package_name: anitui
+    package_name: tsuzuki
     vendor: EmoFa
-    homepage: https://github.com/EmoFa/anitui
+    homepage: https://github.com/EmoFa/tsuzuki
     maintainer: EmoFa <https://github.com/EmoFa>
     description: Terminal app for watching anime in mpv, with AniList tracking.
+    license: MIT
     formats: [deb, rpm, archlinux]
     dependencies: [mpv]
     recommends: [chromium]
     contents:
       - src: README.md
-        dst: /usr/share/doc/anitui/README.md
+        dst: /usr/share/doc/tsuzuki/README.md
       - src: docs/config.md
-        dst: /usr/share/doc/anitui/config.md
+        dst: /usr/share/doc/tsuzuki/config.md
+      - src: LICENSE
+        dst: /usr/share/licenses/tsuzuki/LICENSE
 
 checksum:
   name_template: checksums.txt
@@ -69,5 +72,93 @@ changelog:
 release:
   github:
     owner: EmoFa
-    name: anitui
-  draft: true
+    name: tsuzuki
+  # Published straight away: Homebrew, winget and the AUR download from it.
+  draft: false
+  prerelease: auto
+
+# Package managers. Each publishes on a release tag (not for prereleases such as
+# v1.0.0-rc1) using secrets from .github/workflows/release.yml.
+
+homebrew_casks:
+  - name: tsuzuki
+    ids: [tsuzuki]
+    repository:
+      owner: EmoFa
+      name: homebrew-tap
+      token: "{{ .Env.PACKAGES_GITHUB_TOKEN }}"
+    directory: Casks
+    homepage: https://github.com/EmoFa/tsuzuki
+    description: Watch anime from your terminal in mpv, with AniList tracking
+    license: MIT
+    skip_upload: auto
+    dependencies:
+      - formula: mpv
+    caveats: |
+      Anikoto and bot-protection checks need Chrome or Chromium.
+      Run `tsuzuki doctor` to check your setup.
+    hooks:
+      post:
+        # The binary isn't signed by Apple, so clear the download quarantine
+        # that would otherwise stop it from running.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/tsuzuki"]
+          end
+
+winget:
+  - name: tsuzuki
+    ids: [tsuzuki]
+    package_identifier: EmoFa.tsuzuki
+    publisher: EmoFa
+    publisher_url: https://github.com/EmoFa
+    publisher_support_url: https://github.com/EmoFa/tsuzuki/issues
+    author: EmoFa
+    short_description: Watch anime from your terminal in mpv, with AniList tracking.
+    description: |
+      tsuzuki finds anime episodes across several providers and plays them in mpv,
+      resuming where you left off. It tracks progress locally or on AniList, skips
+      openings, endings and filler episodes, and shows what you're watching on Discord.
+    homepage: https://github.com/EmoFa/tsuzuki
+    license: MIT
+    license_url: https://github.com/EmoFa/tsuzuki/blob/main/LICENSE
+    copyright: Copyright (c) 2026 EmoFa
+    release_notes_url: https://github.com/EmoFa/tsuzuki/releases/tag/{{ .Tag }}
+    tags: [anime, anilist, cli, mpv, tui]
+    skip_upload: auto
+    dependencies:
+      - package_identifier: shinchiro.mpv
+    repository:
+      owner: EmoFa
+      name: winget-pkgs
+      branch: "tsuzuki-{{ .Version }}"
+      token: "{{ .Env.PACKAGES_GITHUB_TOKEN }}"
+      pull_request:
+        enabled: true
+        base:
+          owner: microsoft
+          name: winget-pkgs
+          branch: master
+
+aurs:
+  - name: tsuzuki-bin
+    # Off until the AUR_SSH_KEY secret exists (see docs/releasing.md).
+    disable: '{{ not (isEnvSet "AUR_SSH_KEY") }}'
+    ids: [tsuzuki]
+    homepage: https://github.com/EmoFa/tsuzuki
+    description: Watch anime from your terminal in mpv, with AniList tracking
+    maintainers: [EmoFa]
+    license: MIT
+    private_key: "{{ .Env.AUR_SSH_KEY }}"
+    git_url: ssh://aur@aur.archlinux.org/tsuzuki-bin.git
+    skip_upload: auto
+    provides: [tsuzuki]
+    conflicts: [tsuzuki]
+    depends: [mpv]
+    optdepends:
+      - "chromium: Anikoto and bot-protection checks"
+    package: |-
+      install -Dm755 ./tsuzuki "${pkgdir}/usr/bin/tsuzuki"
+      install -Dm644 ./LICENSE "${pkgdir}/usr/share/licenses/tsuzuki/LICENSE"
+      install -Dm644 ./README.md "${pkgdir}/usr/share/doc/tsuzuki/README.md"
+      install -Dm644 ./docs/config.md "${pkgdir}/usr/share/doc/tsuzuki/config.md"

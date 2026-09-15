@@ -10,7 +10,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/EmoFa/anitui/internal/session"
+	"github.com/EmoFa/tsuzuki/internal/session"
 )
 
 const playingLogLines = 6

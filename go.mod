@@ -1,4 +1,4 @@
-module github.com/EmoFa/anitui
+module github.com/EmoFa/tsuzuki
 
 go 1.27.1
 

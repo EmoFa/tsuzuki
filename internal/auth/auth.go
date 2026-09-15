@@ -1,5 +1,5 @@
 // Package auth logs in to AniList with its implicit grant: the user approves
-// anitui in their browser and AniList redirects to a local callback with the
+// tsuzuki in their browser and AniList redirects to a local callback with the
 // access token in the URL fragment.
 package auth
 
@@ -30,7 +30,7 @@ const (
 
 var ErrNoClientID = errors.New("no AniList client ID configured")
 
-// AuthorizeURL is the page where the user approves anitui.
+// AuthorizeURL is the page where the user approves tsuzuki.
 func AuthorizeURL(clientID int) string {
 	return "https://anilist.co/api/v2/oauth/authorize?" + url.Values{
 		"client_id":     {strconv.Itoa(clientID)},
@@ -213,18 +213,18 @@ func parseGrant(raw string) (Grant, error) {
 	return g, nil
 }
 
-// callbackPage forwards the URL fragment (never sent to servers) to anitui.
+// callbackPage forwards the URL fragment (never sent to servers) to tsuzuki.
 const callbackPage = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>anitui login</title>
+<html lang="en"><head><meta charset="utf-8"><title>tsuzuki login</title>
 <style>body{font:16px system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;line-height:1.5}</style>
 </head><body>
-<h1>anitui</h1><p id="msg">Finishing login…</p>
+<h1>tsuzuki</h1><p id="msg">Finishing login…</p>
 <script>
 const payload = location.hash.length > 1 ? location.hash.slice(1) : location.search.slice(1);
 const msg = document.getElementById("msg");
 fetch("/token", {method: "POST", body: payload})
   .then(r => r.ok ? r.text() : r.text().then(t => Promise.reject(new Error(t))))
-  .then(() => { msg.textContent = "You're logged in. You can close this tab and return to anitui."; })
+  .then(() => { msg.textContent = "You're logged in. You can close this tab and return to tsuzuki."; })
   .catch(e => { msg.textContent = "Login failed: " + e.message; });
 history.replaceState(null, "", location.pathname);
 </script>

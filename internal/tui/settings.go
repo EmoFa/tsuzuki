@@ -101,7 +101,7 @@ func (s *settingsScreen) build() {
 		section("Interface"),
 		row("theme", c.UI.Theme),
 		"",
-		styleMuted.Render("Change these with `anitui config edit`, then restart anitui."),
+		styleMuted.Render("Change these with `tsuzuki config edit`, then restart tsuzuki."),
 	}
 	s.lines = strings.Split(strings.Join(lines, "\n"), "\n")
 }
@@ -146,7 +146,7 @@ func (s *settingsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 		case key.Matches(msg, keyLogin) && s.working == "":
 			s.working = "login"
 			ctx, svc := s.ctx, s.svc
-			return s, tea.Batch(toast("Approve anitui in the AniList page that opened in your browser…", false), func() tea.Msg {
+			return s, tea.Batch(toast("Approve tsuzuki in the AniList page that opened in your browser…", false), func() tea.Msg {
 				user, err := svc.Login(ctx)
 				return loginDoneMsg{user, err}
 			})

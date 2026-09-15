@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EmoFa/anitui/internal/httpx"
+	"github.com/EmoFa/tsuzuki/internal/httpx"
 )
 
 type memKV struct {

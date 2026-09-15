@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/EmoFa/anitui/internal/httpx"
+	"github.com/EmoFa/tsuzuki/internal/httpx"
 )
 
 var _ httpx.ClearanceStore = (*Store)(nil)

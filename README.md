@@ -1,6 +1,6 @@
-# anitui
+# tsuzuki
 
-Watch anime from your terminal. Find a show, pick an episode, and anitui plays it
+Watch anime from your terminal. Find a show, pick an episode, and tsuzuki plays it
 in [mpv](https://mpv.io), remembering where you stopped and keeping your
 [AniList](https://anilist.co) up to date.
 
@@ -16,51 +16,59 @@ in [mpv](https://mpv.io), remembering where you stopped and keeping your
 - A full-screen terminal UI, plain commands for scripting, and a
   [config file](docs/config.md) for everything else.
 
-anitui doesn't host anything: it finds streams on third-party sites and plays them.
+tsuzuki doesn't host anything: it finds streams on third-party sites and plays them.
 
 ## Requirements
 
-- **mpv** for playback. anitui finds it on your `PATH` (or set `player.mpv_path`).
+- **mpv** for playback. tsuzuki finds it on your `PATH` (or set `player.mpv_path`).
 - **Chrome, Chromium or Edge** for Anikoto and for bot-protection checks. Without one,
-  set `browser.auto_download = true` to have anitui fetch Chromium, or remove
+  set `browser.auto_download = true` to have tsuzuki fetch Chromium, or remove
   Anikoto from `providers.order`.
 - Linux, macOS or Windows.
 
 ## Install
 
-**Release builds.** Download an archive for your platform from the
-[releases page](https://github.com/EmoFa/anitui/releases), extract it and put
-`anitui` on your `PATH`. `.deb`, `.rpm` and Arch Linux packages are there too.
+| Platform | Command |
+|---|---|
+| macOS, Linux ([Homebrew](https://brew.sh)) | `brew install EmoFa/tap/tsuzuki` |
+| Windows | `winget install EmoFa.tsuzuki` |
+
+Each installs mpv too, and updates with your package manager (`brew upgrade`,
+`winget upgrade`). On Windows, open a new terminal after installing
+so `tsuzuki` is on your `PATH`.
+
+Archives, `.deb` and `.rpm` packages are also on the
+[releases page](https://github.com/EmoFa/tsuzuki/releases).
 
 **With Go** (1.27 or newer):
 
 ```sh
-go install github.com/EmoFa/anitui/cmd/anitui@latest
+go install github.com/EmoFa/tsuzuki/cmd/tsuzuki@latest
 ```
 
 **From source:**
 
 ```sh
-git clone https://github.com/EmoFa/anitui && cd anitui
-make build        # binary in bin/anitui
+git clone https://github.com/EmoFa/tsuzuki && cd tsuzuki
+make build        # binary in bin/tsuzuki
 ```
 
 Then check your setup:
 
 ```sh
-anitui doctor
+tsuzuki doctor
 ```
 
 ## Getting started
 
-Run `anitui` to open the terminal UI. Press <kbd>/</kbd> to search, pick a show,
+Run `tsuzuki` to open the terminal UI. Press <kbd>/</kbd> to search, pick a show,
 and press <kbd>Enter</kbd> on an episode. Next time, your shows are on the home
 screen under **Continue watching**.
 
 To keep AniList in sync, log in once:
 
 ```sh
-anitui login      # opens AniList in your browser
+tsuzuki login      # opens AniList in your browser
 ```
 
 From then on, each episode you finish (85% by default) is recorded on your AniList
@@ -96,43 +104,43 @@ Seeking, pausing and everything else use mpv's own keys.
 The UI isn't required: every feature has a command.
 
 ```sh
-anitui search frieren             # find the AniList ID
-anitui watch 154587               # resume, or start from episode 1
-anitui watch 154587 5 --mode dub  # a specific episode
-anitui continue                   # the show you watched last
-anitui history                    # recently watched
-anitui list watching              # your list (watching, planning, completed, ...)
-anitui login | logout | whoami | sync
-anitui config init | edit | check | path
-anitui doctor [--streams]         # check dependencies, services and providers
+tsuzuki search frieren             # find the AniList ID
+tsuzuki watch 154587               # resume, or start from episode 1
+tsuzuki watch 154587 5 --mode dub  # a specific episode
+tsuzuki continue                   # the show you watched last
+tsuzuki history                    # recently watched
+tsuzuki list watching              # your list (watching, planning, completed, ...)
+tsuzuki login | logout | whoami | sync
+tsuzuki config init | edit | check | path
+tsuzuki doctor [--streams]         # check dependencies, services and providers
 ```
 
 ## Configuration
 
-`anitui config init` writes a commented config file with every setting and its
+`tsuzuki config init` writes a commented config file with every setting and its
 default. [docs/config.md](docs/config.md) describes each one: provider order,
-quality, autoplay, skipping, tracking, Discord, and where anitui keeps its files.
+quality, autoplay, skipping, tracking, Discord, and where tsuzuki keeps its files.
 
 ## Troubleshooting
 
-- **Start with `anitui doctor`.** It checks mpv, the browser, Discord, your AniList
+- **Start with `tsuzuki doctor`.** It checks mpv, the browser, Discord, your AniList
   login, AniSkip and the filler list, and searches every provider. Add `--streams` to
   also test playback from each provider.
-- **Logs** are in the cache directory (`anitui config path` shows it). Run with
+- **Logs** are in the cache directory (`tsuzuki config path` shows it). Run with
   `--debug` for more detail.
 - **A verification window opened.** A site's bot check needs a human. Complete it
-  once, and anitui reuses the result for as long as the site accepts it.
-- **The wrong show plays, or a provider can't find one it has.** See what anitui
-  matched with `anitui debug resolve <anilist-id>`. Pin the right show with
-  `anitui debug map <anilist-id> <provider> <show-id>` (find show IDs with
-  `anitui debug search <provider> <title>`), or forget a match with
-  `anitui debug unmap <anilist-id>`.
-- **Verification keeps failing.** `anitui debug clearances` lists what's stored,
-  and `anitui debug reset-browser` starts over with a fresh browser profile.
+  once, and tsuzuki reuses the result for as long as the site accepts it.
+- **The wrong show plays, or a provider can't find one it has.** See what tsuzuki
+  matched with `tsuzuki debug resolve <anilist-id>`. Pin the right show with
+  `tsuzuki debug map <anilist-id> <provider> <show-id>` (find show IDs with
+  `tsuzuki debug search <provider> <title>`), or forget a match with
+  `tsuzuki debug unmap <anilist-id>`.
+- **Verification keeps failing.** `tsuzuki debug clearances` lists what's stored,
+  and `tsuzuki debug reset-browser` starts over with a fresh browser profile.
 
 Provider notes and current status: [docs/providers](docs/providers/status.md).
 
-## What anitui sends where
+## What tsuzuki sends where
 
 - **AniList:** searches, show details, and (when logged in) your list and progress.
 - **AniSkip and Anime Filler List:** the MAL ID and episode number, or show title,
@@ -154,4 +162,10 @@ make cross        # build every platform into dist/
 make snapshot     # release archives and packages, without publishing
 ```
 
-Pushing a `v*` tag builds a draft GitHub release with goreleaser.
+Pushing a `v*` tag publishes a GitHub release with goreleaser, updates the
+Homebrew tap and (once set up) the AUR package, and opens a winget pull request. See
+[docs/releasing.md](docs/releasing.md).
+
+## License
+
+[MIT](LICENSE)

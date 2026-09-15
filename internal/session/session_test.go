@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EmoFa/anitui/internal/anilist"
-	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/player"
-	"github.com/EmoFa/anitui/internal/provider"
-	"github.com/EmoFa/anitui/internal/skip"
-	"github.com/EmoFa/anitui/internal/store"
+	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/player"
+	"github.com/EmoFa/tsuzuki/internal/provider"
+	"github.com/EmoFa/tsuzuki/internal/skip"
+	"github.com/EmoFa/tsuzuki/internal/store"
 )
 
 var media = anilist.Media{ID: 182255, Title: anilist.Title{English: "Frieren S2"}, Episodes: 3, Status: "FINISHED"}
@@ -486,7 +486,7 @@ func TestSkipsFromStreamAndAniSkip(t *testing.T) {
 			{Kind: player.EventPosition, Position: 10 * time.Second, Duration: 24 * time.Minute},
 			{Kind: player.EventPosition, Position: 118 * time.Second, Duration: 24 * time.Minute},
 			{Kind: player.EventPosition, Position: 1345 * time.Second, Duration: 24 * time.Minute},
-			{Kind: player.EventMessage, Args: []string{"anitui-skip"}},
+			{Kind: player.EventMessage, Args: []string{"tsuzuki-skip"}},
 			{Kind: player.EventEndFile, Reason: "quit"},
 		},
 		final: player.State{Position: 1350 * time.Second, Duration: 24 * time.Minute, EndReason: "quit"},

@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/EmoFa/anitui/internal/config"
+	"github.com/EmoFa/tsuzuki/internal/config"
 )
 
 func newConfigCmd(app *App) *cobra.Command {
@@ -39,7 +39,7 @@ func newConfigCmd(app *App) *cobra.Command {
 
 	pathCmd := &cobra.Command{
 		Use:         "path",
-		Short:       "Print where anitui keeps its files",
+		Short:       "Print where tsuzuki keeps its files",
 		Args:        cobra.NoArgs,
 		Annotations: skip,
 		Run: func(cmd *cobra.Command, args []string) {
@@ -76,7 +76,7 @@ func newConfigCmd(app *App) *cobra.Command {
 		// Loading happens in PersistentPreRunE; reaching RunE means it's valid.
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if _, err := os.Stat(app.ConfigPath); errors.Is(err, os.ErrNotExist) {
-				fmt.Fprintln(cmd.OutOrStdout(), "No config file; using defaults. Create one with `anitui config init`.")
+				fmt.Fprintln(cmd.OutOrStdout(), "No config file; using defaults. Create one with `tsuzuki config init`.")
 				return nil
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "Config OK:", app.ConfigPath)

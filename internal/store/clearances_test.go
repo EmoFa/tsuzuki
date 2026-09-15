@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EmoFa/anitui/internal/httpx"
+	"github.com/EmoFa/tsuzuki/internal/httpx"
 )
 
 func TestClearanceRoundTrip(t *testing.T) {

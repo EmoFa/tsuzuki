@@ -1,18 +1,18 @@
-// Package tui is anitui's full-screen terminal interface.
+// Package tui is tsuzuki's full-screen terminal interface.
 package tui
 
 import (
 	"context"
 
-	"github.com/EmoFa/anitui/internal/anilist"
-	"github.com/EmoFa/anitui/internal/config"
-	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/session"
-	"github.com/EmoFa/anitui/internal/skip"
-	"github.com/EmoFa/anitui/internal/store"
+	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/config"
+	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/session"
+	"github.com/EmoFa/tsuzuki/internal/skip"
+	"github.com/EmoFa/tsuzuki/internal/store"
 )
 
-// Services is everything the TUI needs from the rest of anitui. Screens call it
+// Services is everything the TUI needs from the rest of tsuzuki. Screens call it
 // only from tea.Cmds, never from Update or View.
 type Services interface {
 	Search(ctx context.Context, query string) ([]anilist.Media, error)
