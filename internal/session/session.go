@@ -28,12 +28,25 @@ const (
 
 var ErrUnavailable = errors.New("episode not available from any provider")
 
+// errPlaybackFailed marks a stream that resolved but didn't play through; the
+// episode is retried on the next provider.
+var errPlaybackFailed = errors.New("playback failed")
+
+const (
+	// maxStreamChecks bounds how many of a provider's streams are health-checked.
+	maxStreamChecks = 3
+	// prematureEndMargin: a stream ending more than this before its duration was
+	// cut off rather than finished.
+	prematureEndMargin = 90 * time.Second
+)
+
 type Settings struct {
 	ProviderOrder    []string
 	Quality          string
 	AutoplayNext     bool
 	WatchedThreshold float64 // fraction of duration that counts as watched
 	ResumeRewind     time.Duration
+	CheckTimeout     time.Duration // per stream health check; default 10s
 }
 
 // Resolver maps AniList entries to provider shows (mapping.Mapper).
@@ -68,6 +81,8 @@ type Deps struct {
 	Progress  ProgressStore
 	Play      func(ctx context.Context, req player.Request) (Playback, error)
 	Proxy     func() (Proxy, error) // started lazily, only for streams that need it
+	// Check verifies a stream serves media before it is played. Nil skips checks.
+	Check func(ctx context.Context, s domain.Stream) error
 	// OnStatus receives updates for the UI. May be nil.
 	OnStatus func(Status)
 }
@@ -113,8 +128,12 @@ type Request struct {
 	Media   anilist.Media
 	Episode float64
 	Mode    domain.Mode
-	// Provider, if set, is tried before the configured order.
+	// Provider, if set, is tried before the configured order. When empty, the
+	// provider that last served this show is preferred.
 	Provider string
+	// SkipProviders are not tried for the first episode (e.g. the user asked
+	// for a different source).
+	SkipProviders []string
 }
 
 // Watch plays req and, with autoplay, the following episodes until the user
@@ -128,13 +147,27 @@ func (s *Session) Watch(ctx context.Context, req Request) error {
 		}
 	}
 	prefer := req.Provider
+	if prefer == "" {
+		prefer = s.lastProvider(ctx, req.Media.ID)
+	}
+	skip := slices.Clone(req.SkipProviders)
+	// failures remembers why providers were abandoned mid-episode, so the final
+	// error explains them.
+	var failures []error
 
 	for {
-		res, err := s.resolve(ctx, req.Media, ep, req.Mode, prefer)
+		res, err := s.resolve(ctx, req.Media, ep, req.Mode, prefer, skip)
 		if err != nil {
-			return err
+			return errors.Join(append([]error{err}, failures...)...)
 		}
 		state, err := s.play(ctx, req.Media, res, req.Mode)
+		if errors.Is(err, errPlaybackFailed) && ctx.Err() == nil {
+			slog.Info("playback failed; trying next provider", "provider", res.provider, "episode", ep, "err", err)
+			s.status(Status{Kind: StatusProviderFailed, Media: req.Media, Episode: ep, Provider: res.provider, Err: err})
+			failures = append(failures, err)
+			skip, prefer = append(skip, res.provider), ""
+			continue // same episode; play resumes from the saved position
+		}
 		if err != nil {
 			return err
 		}
@@ -146,8 +179,17 @@ func (s *Session) Watch(ctx context.Context, req Request) error {
 			s.status(Status{Kind: StatusNoNextEpisode, Media: req.Media, Episode: ep, Provider: res.provider})
 			return nil
 		}
-		ep, prefer = next.Number, res.provider
+		ep, prefer, skip, failures = next.Number, res.provider, nil, nil
 	}
+}
+
+// lastProvider is the provider that most recently served the show, if any.
+func (s *Session) lastProvider(ctx context.Context, mediaID int) string {
+	eps, err := s.Progress.ShowProgress(ctx, mediaID)
+	if err != nil || len(eps) == 0 {
+		return ""
+	}
+	return slices.MaxFunc(eps, func(a, b store.Progress) int { return a.UpdatedAt.Compare(b.UpdatedAt) }).Provider
 }
 
 // NextToWatch returns the episode to continue with: the most recently watched
@@ -176,8 +218,11 @@ type resolved struct {
 }
 
 // resolve tries providers in order (prefer first) until one has a playable stream.
-func (s *Session) resolve(ctx context.Context, media anilist.Media, number float64, mode domain.Mode, prefer string) (resolved, error) {
-	order := s.Settings.ProviderOrder
+func (s *Session) resolve(ctx context.Context, media anilist.Media, number float64, mode domain.Mode, prefer string, skip []string) (resolved, error) {
+	order := slices.DeleteFunc(slices.Clone(s.Settings.ProviderOrder), func(n string) bool { return slices.Contains(skip, n) })
+	if slices.Contains(skip, prefer) {
+		prefer = ""
+	}
 	if prefer != "" {
 		order = append([]string{prefer}, slices.DeleteFunc(slices.Clone(order), func(n string) bool { return n == prefer })...)
 	}
@@ -223,7 +268,7 @@ func (s *Session) resolveOn(ctx context.Context, p provider.Provider, media anil
 	if err != nil {
 		return resolved{}, err
 	}
-	stream, err := domain.SelectStream(streams, s.Settings.Quality)
+	stream, err := s.pickStream(ctx, streams)
 	if err != nil {
 		return resolved{}, err
 	}
@@ -250,6 +295,47 @@ func (s *Session) episodeList(ctx context.Context, p provider.Provider, showID s
 	s.episodes[key] = eps
 	s.mu.Unlock()
 	return eps, nil
+}
+
+// pickStream returns the stream closest to the configured quality that passes
+// a health check, trying up to maxStreamChecks candidates.
+func (s *Session) pickStream(ctx context.Context, streams []domain.Stream) (domain.Stream, error) {
+	remaining := slices.Clone(streams)
+	var errs []error
+	for range maxStreamChecks {
+		if len(remaining) == 0 {
+			break
+		}
+		cand, err := domain.SelectStream(remaining, s.Settings.Quality)
+		if err != nil {
+			return domain.Stream{}, err
+		}
+		if s.Check == nil {
+			return cand, nil
+		}
+		checkCtx, cancel := context.WithTimeout(ctx, durationOr(s.Settings.CheckTimeout, 10*time.Second))
+		err = s.Check(checkCtx, cand)
+		cancel()
+		if err == nil {
+			return cand, nil
+		}
+		if ctx.Err() != nil {
+			return domain.Stream{}, ctx.Err()
+		}
+		slog.Info("stream failed health check", "stream", cand.Label, "err", err)
+		errs = append(errs, fmt.Errorf("%s: %w", cand.Label, err))
+		remaining = slices.DeleteFunc(remaining, func(st domain.Stream) bool {
+			return st.URL == cand.URL && st.VariantHeight == cand.VariantHeight
+		})
+	}
+	return domain.Stream{}, fmt.Errorf("no stream passed the health check: %w", errors.Join(errs...))
+}
+
+func durationOr(d, fallback time.Duration) time.Duration {
+	if d > 0 {
+		return d
+	}
+	return fallback
 }
 
 func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, mode domain.Mode) (player.State, error) {
@@ -300,7 +386,8 @@ func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, m
 		if st.Duration <= 0 && st.EndReason != "eof" {
 			return // never really started
 		}
-		done := st.EndReason == "eof" || (st.Duration > 0 && st.Position.Seconds() >= s.Settings.WatchedThreshold*st.Duration.Seconds())
+		done := (st.EndReason == "eof" && !prematureEnd(st)) ||
+			(st.Duration > 0 && st.Position.Seconds() >= s.Settings.WatchedThreshold*st.Duration.Seconds())
 		if done && !watched {
 			watched = true
 			w := base
@@ -346,10 +433,21 @@ func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, m
 	end.Kind, end.Reason, end.Position, end.Duration = StatusStopped, st.EndReason, st.Position, st.Duration
 	s.status(end)
 
-	if st.EndReason == "error" || (st.EndReason == "" && waitErr != nil && ctx.Err() == nil) {
-		return st, fmt.Errorf("playback of episode %s from %s failed: %w", res.episode.Label(), res.provider, playbackErr(waitErr))
+	switch {
+	case ctx.Err() != nil:
+	case st.EndReason == "error" || (st.EndReason == "" && waitErr != nil):
+		return st, fmt.Errorf("episode %s from %s: %w: %v", res.episode.Label(), res.provider, errPlaybackFailed, playbackErr(waitErr))
+	case prematureEnd(st):
+		return st, fmt.Errorf("episode %s from %s: %w: stream ended at %s of %s", res.episode.Label(), res.provider,
+			errPlaybackFailed, st.Position.Round(time.Second), st.Duration.Round(time.Second))
 	}
 	return st, nil
+}
+
+// prematureEnd reports a stream that hit end-of-file well before its duration,
+// which is how a dropped connection looks to mpv.
+func prematureEnd(st player.State) bool {
+	return st.EndReason == "eof" && st.Duration > 2*prematureEndMargin && st.Position < st.Duration-prematureEndMargin
 }
 
 func playbackErr(err error) error {

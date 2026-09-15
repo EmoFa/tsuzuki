@@ -223,7 +223,7 @@ func (p *statusPrinter) print(s session.Status) {
 	case session.StatusResolving:
 		p.line("Looking for episode %s on %s…", ep, s.Provider)
 	case session.StatusProviderFailed:
-		p.line("  ✗ %v", s.Err) // errors already name the provider
+		p.line("  ✗ %s", firstLineOf(s.Err.Error())) // errors already name the provider
 	case session.StatusPlaying:
 		msg := fmt.Sprintf("▶ %s · Episode %s · %s %s", s.Media.DisplayTitle(), ep, s.Provider, s.Stream.Label)
 		if s.Start > 0 {

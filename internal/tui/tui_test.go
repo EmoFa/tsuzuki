@@ -282,3 +282,31 @@ func TestTextHelpers(t *testing.T) {
 		t.Errorf("nextEpisode = %v", got)
 	}
 }
+
+func TestTryAnotherProviderSkipsCurrent(t *testing.T) {
+	m := New(context.Background(), &fakeServices{})
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.Update(watchMsg{session.Request{Media: frieren2, Episode: 3, Mode: domain.Sub, SkipProviders: []string{"senshi"}}})
+	m.Update(statusMsg{gen: 1, st: session.Status{Kind: session.StatusPlaying, Episode: 3, Provider: "anikoto"}})
+
+	_, cmd := m.Update(press("f"))
+	msgs := runBatch(cmd)
+	if len(msgs) != 1 {
+		t.Fatalf("msgs = %+v", msgs)
+	}
+	req := msgs[0].(watchMsg).req
+	if req.Episode != 3 || req.Provider != "" || strings.Join(req.SkipProviders, ",") != "senshi,anikoto" {
+		t.Fatalf("request = %+v", req)
+	}
+	// Feeding it back queues the switch behind the running watch.
+	m.Update(msgs[0])
+	if m.pending == nil || m.pending.SkipProviders[1] != "anikoto" {
+		t.Fatalf("pending = %+v", m.pending)
+	}
+
+	// Moving to another episode forgets the skipped providers.
+	_, cmd = m.Update(press("n"))
+	if next := runBatch(cmd)[0].(watchMsg).req; next.Episode != 4 || next.SkipProviders != nil {
+		t.Fatalf("next = %+v", next)
+	}
+}

@@ -18,6 +18,7 @@ import (
 	"github.com/EmoFa/anitui/internal/provider/animepahe"
 	"github.com/EmoFa/anitui/internal/provider/senshi"
 	"github.com/EmoFa/anitui/internal/session"
+	"github.com/EmoFa/anitui/internal/streamcheck"
 	"github.com/EmoFa/anitui/internal/streamproxy"
 )
 
@@ -54,12 +55,17 @@ func (a *App) Providers(ctx context.Context) (*provider.Registry, error) {
 	if err != nil {
 		return nil, err
 	}
+	return a.newRegistry(client), nil
+}
+
+// newRegistry builds every provider on client.
+func (a *App) newRegistry(client *httpx.Client) *provider.Registry {
 	return provider.NewRegistry(
 		anikoto.New(client, a.Sniffer(), ""),
 		senshi.New(client, "", ""),
 		animepahe.New(client, ""),
 		allanime.New(client, ""),
-	), nil
+	)
 }
 
 // AniList returns the AniList client, caching media details in the database.
@@ -105,6 +111,11 @@ func (a *App) Session(ctx context.Context, onStatus func(session.Status)) (*sess
 	if err != nil {
 		return nil, err
 	}
+	client, err := a.HTTP(ctx)
+	if err != nil {
+		return nil, err
+	}
+	checker := &streamcheck.Checker{Client: client}
 	cfg := a.Config
 	mpv := player.New(player.Options{MpvPath: cfg.Player.MpvPath, ExtraArgs: cfg.Player.ExtraArgs})
 	return session.New(session.Deps{
@@ -114,6 +125,7 @@ func (a *App) Session(ctx context.Context, onStatus func(session.Status)) (*sess
 			AutoplayNext:     cfg.General.AutoplayNext,
 			WatchedThreshold: cfg.General.WatchedThreshold,
 			ResumeRewind:     time.Duration(cfg.General.ResumeRewindSeconds) * time.Second,
+			CheckTimeout:     cfg.Providers.HealthCheckTimeout.Duration,
 		},
 		Providers: reg,
 		Resolver:  mapper,
@@ -122,6 +134,7 @@ func (a *App) Session(ctx context.Context, onStatus func(session.Status)) (*sess
 			return mpv.Play(ctx, req)
 		},
 		Proxy:    func() (session.Proxy, error) { return a.StreamProxy() },
+		Check:    checker.Check,
 		OnStatus: onStatus,
 	}), nil
 }

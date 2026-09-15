@@ -279,3 +279,128 @@ func TestPlayerRequest(t *testing.T) {
 		t.Fatalf("proxied = %+v err=%v", proxied, err)
 	}
 }
+
+func TestHealthCheckTriesOtherQualityThenProvider(t *testing.T) {
+	a := &fakeProvider{name: "anikoto", eps: 3}
+	b := &fakeProvider{name: "senshi", eps: 3}
+
+	// 1080p on anikoto is dead but 720p works: stay on anikoto.
+	h := newHarness(t, []provider.Provider{a, b}, played(time.Minute, 24*time.Minute, "quit"))
+	h.sess.Check = func(_ context.Context, s domain.Stream) error {
+		if s.URL == "https://anikoto/1080.m3u8" {
+			return errors.New("HTTP 404")
+		}
+		return nil
+	}
+	if err := h.sess.Watch(context.Background(), Request{Media: media, Episode: 1, Mode: domain.Sub}); err != nil {
+		t.Fatal(err)
+	}
+	if h.requests[0].URL != "https://anikoto/720.m3u8" {
+		t.Fatalf("played %s, want anikoto 720p", h.requests[0].URL)
+	}
+
+	// Every anikoto stream is dead: move on to senshi.
+	h = newHarness(t, []provider.Provider{a, b}, played(time.Minute, 24*time.Minute, "quit"))
+	h.sess.Check = func(_ context.Context, s domain.Stream) error {
+		if strings.HasPrefix(s.URL, "https://anikoto/") {
+			return errors.New("dead")
+		}
+		return nil
+	}
+	if err := h.sess.Watch(context.Background(), Request{Media: media, Episode: 1, Mode: domain.Sub}); err != nil {
+		t.Fatal(err)
+	}
+	if h.requests[0].URL != "https://senshi/1080.m3u8" {
+		t.Fatalf("played %s, want senshi", h.requests[0].URL)
+	}
+	failed := h.kinds(StatusProviderFailed)
+	if len(failed) != 1 || failed[0].Provider != "anikoto" || !strings.Contains(failed[0].Err.Error(), "health check") {
+		t.Fatalf("failures = %+v", failed)
+	}
+}
+
+func TestPlaybackErrorRetriesNextProviderAndResumes(t *testing.T) {
+	a := &fakeProvider{name: "anikoto", eps: 3}
+	b := &fakeProvider{name: "senshi", eps: 3}
+	h := newHarness(t, []provider.Provider{a, b},
+		played(8*time.Minute, 24*time.Minute, "error"),
+		played(10*time.Minute, 24*time.Minute, "quit"),
+	)
+	ctx := context.Background()
+	if err := h.sess.Watch(ctx, Request{Media: media, Episode: 2, Mode: domain.Sub}); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.requests) != 2 {
+		t.Fatalf("played %d times, want 2", len(h.requests))
+	}
+	second := h.requests[1]
+	if second.URL != "https://senshi/1080.m3u8" || !strings.Contains(second.Title, "Episode 2") || second.Start != 8*time.Minute-5*time.Second {
+		t.Fatalf("retry = %+v", second)
+	}
+	if p, _ := h.store.EpisodeProgress(ctx, media.ID, 2); p == nil || p.Provider != "senshi" || p.Completed {
+		t.Fatalf("progress = %+v", p)
+	}
+}
+
+func TestPrematureEndIsNotWatchedAndRetries(t *testing.T) {
+	a := &fakeProvider{name: "anikoto", eps: 3}
+	b := &fakeProvider{name: "senshi", eps: 3}
+	h := newHarness(t, []provider.Provider{a, b},
+		played(10*time.Minute, 24*time.Minute, "eof"), // stream cut off
+		played(24*time.Minute, 24*time.Minute, "eof"), // played to the end
+		played(time.Minute, 24*time.Minute, "quit"),   // autoplayed next, then quit
+	)
+	ctx := context.Background()
+	if err := h.sess.Watch(ctx, Request{Media: media, Episode: 1, Mode: domain.Sub}); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.requests) != 3 || h.requests[1].Start != 10*time.Minute-5*time.Second || !strings.Contains(h.requests[2].Title, "Episode 2") {
+		t.Fatalf("requests = %+v", h.requests)
+	}
+	// Autoplay kept using the provider that worked.
+	if h.requests[2].URL != "https://senshi/1080.m3u8" {
+		t.Fatalf("episode 2 from %s", h.requests[2].URL)
+	}
+	if watched := h.kinds(StatusWatched); len(watched) != 1 {
+		t.Fatalf("watched statuses = %d, want 1 (the cut-off play must not count)", len(watched))
+	}
+}
+
+func TestPlaybackFailsEverywhere(t *testing.T) {
+	a := &fakeProvider{name: "anikoto", eps: 3}
+	b := &fakeProvider{name: "senshi", eps: 3}
+	h := newHarness(t, []provider.Provider{a, b},
+		played(time.Minute, 24*time.Minute, "error"),
+		played(time.Minute, 24*time.Minute, "error"),
+	)
+	err := h.sess.Watch(context.Background(), Request{Media: media, Episode: 1, Mode: domain.Sub})
+	if !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), "from anikoto") || !strings.Contains(err.Error(), "from senshi") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestPrefersLastProviderAndHonoursSkip(t *testing.T) {
+	a := &fakeProvider{name: "anikoto", eps: 3}
+	b := &fakeProvider{name: "senshi", eps: 3}
+	c := &fakeProvider{name: "animepahe", eps: 3}
+	h := newHarness(t, []provider.Provider{a, b, c},
+		played(time.Minute, 24*time.Minute, "quit"),
+		played(time.Minute, 24*time.Minute, "quit"),
+	)
+	ctx := context.Background()
+	h.store.SaveProgress(ctx, store.Progress{MediaID: media.ID, Episode: 1, Completed: true, Duration: 24 * time.Minute, Provider: "animepahe", Mode: "sub"})
+
+	if err := h.sess.Watch(ctx, Request{Media: media, Episode: 2, Mode: domain.Sub}); err != nil {
+		t.Fatal(err)
+	}
+	if h.requests[0].URL != "https://animepahe/1080.m3u8" {
+		t.Fatalf("played %s, want the last provider (animepahe)", h.requests[0].URL)
+	}
+
+	if err := h.sess.Watch(ctx, Request{Media: media, Episode: 2, Mode: domain.Sub, SkipProviders: []string{"animepahe", "anikoto"}}); err != nil {
+		t.Fatal(err)
+	}
+	if h.requests[1].URL != "https://senshi/1080.m3u8" {
+		t.Fatalf("played %s, want senshi (others skipped)", h.requests[1].URL)
+	}
+}

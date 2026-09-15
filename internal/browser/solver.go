@@ -31,7 +31,7 @@ import (
 	"github.com/EmoFa/anitui/internal/httpx"
 )
 
-var ErrNoBrowser = errors.New("no Chrome/Chromium found: install one or set browser.path in the config")
+var ErrNoBrowser = errors.New("no usable Chrome/Chromium: install one or set browser.path in the config")
 
 // challengeJS reports whether the page is still showing a bot challenge (or
 // hasn't finished loading the target yet).
@@ -121,7 +121,7 @@ func findBinary(configured string, autoDownload bool, downloadDir string, notify
 	if configured != "" {
 		p, err := exec.LookPath(configured)
 		if err != nil {
-			return "", fmt.Errorf("browser.path %q: %w", configured, err)
+			return "", fmt.Errorf("%w: browser.path %q: %v", ErrNoBrowser, configured, err)
 		}
 		return p, nil
 	}

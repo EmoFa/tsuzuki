@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -41,12 +42,15 @@ func (p *playingScreen) Init() tea.Cmd { return p.spinner.Tick }
 func (p *playingScreen) Title() string { return "Now playing" }
 
 var (
-	keyNext = key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "next episode"))
-	keyPrev = key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "previous episode"))
-	keyStop = key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "stop"))
+	keyNext  = key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "next episode"))
+	keyPrev  = key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "previous episode"))
+	keyStop  = key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "stop"))
+	keyOther = key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "try another provider"))
 )
 
-func (p *playingScreen) Help() []key.Binding { return []key.Binding{keyNext, keyPrev, keyStop} }
+func (p *playingScreen) Help() []key.Binding {
+	return []key.Binding{keyNext, keyPrev, keyOther, keyStop}
+}
 
 // Back stops playback; the screen closes once progress has been saved.
 func (p *playingScreen) Back() tea.Cmd { return p.stop() }
@@ -74,6 +78,8 @@ func (p *playingScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 			return p, p.jump(p.episode + 1)
 		case key.Matches(msg, keyPrev) && p.episode > 1:
 			return p, p.jump(p.episode - 1)
+		case key.Matches(msg, keyOther) && p.provider != "" && p.episode > 0:
+			return p, p.switchProvider()
 		}
 	}
 	return p, nil
@@ -81,8 +87,19 @@ func (p *playingScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 
 func (p *playingScreen) jump(episode float64) tea.Cmd {
 	req := p.req
-	req.Episode, req.Provider = episode, p.provider
+	// A different episode starts afresh: providers skipped for this one may work.
+	req.Episode, req.Provider, req.SkipProviders = episode, p.provider, nil
 	p.logf("Switching to episode %s…", episodeLabel(episode))
+	return watch(req)
+}
+
+// switchProvider replays the current episode without the current provider (or
+// any already abandoned). Stopping saves the position, so it resumes there.
+func (p *playingScreen) switchProvider() tea.Cmd {
+	req := p.req
+	req.Episode, req.Provider = p.episode, ""
+	req.SkipProviders = append(slices.Clone(req.SkipProviders), p.provider)
+	p.logf("Switching away from %s…", p.provider)
 	return watch(req)
 }
 

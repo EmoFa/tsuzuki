@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/EmoFa/anitui/internal/browser"
 	"github.com/EmoFa/anitui/internal/domain"
 	"github.com/EmoFa/anitui/internal/extractor"
 	"github.com/EmoFa/anitui/internal/httpx"
@@ -223,6 +224,9 @@ func (p *Provider) Streams(ctx context.Context, showID string, ep domain.Episode
 		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
+		}
+		if errors.Is(err, browser.ErrNoBrowser) {
+			return nil, fmt.Errorf("anikoto: %w", err) // no other server can work either
 		}
 		slog.Info("anikoto server failed", "server", srv.name, "err", err)
 		errs = append(errs, fmt.Errorf("%s: %w", srv.name, err))

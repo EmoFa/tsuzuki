@@ -157,5 +157,9 @@ func progressLine(it homeItem) string {
 	default:
 		state = fmt.Sprintf("Episode %s · %s / %s", episodeLabel(p.Episode), clock(p.Position), clock(p.Duration))
 	}
-	return fmt.Sprintf("%s · %s · %s", state, p.Mode, ago(p.UpdatedAt))
+	line := fmt.Sprintf("%s · %s", state, p.Mode)
+	if p.Provider != "" {
+		line += " · " + p.Provider
+	}
+	return line + " · " + ago(p.UpdatedAt)
 }
