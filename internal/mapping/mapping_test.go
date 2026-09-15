@@ -123,6 +123,90 @@ func TestMatchByResolvingIDs(t *testing.T) {
 	}
 }
 
+func TestSeriesNotCrowdedOutByArcFilms(t *testing.T) {
+	// Anikoto's real results for JoJo (2012): the AniList synonyms name the two
+	// arcs, which Anikoto also lists as films, and an OVA shares the bare title.
+	jojo := anilist.Media{
+		ID: 14719, IDMal: 14719, Format: "TV", Episodes: 26, Status: "FINISHED", Year: 2012,
+		Title:    anilist.Title{English: "JoJo's Bizarre Adventure (TV)", Romaji: "JoJo no Kimyou na Bouken (TV)"},
+		Synonyms: []string{"JoJo no Kimyou na Bouken (2012)", "JoJo's Bizarre Adventure: Phantom Blood", "JoJo's Bizarre Adventure: Battle Tendency", "JJBA"},
+	}
+	shows := []domain.Show{
+		{ID: "514", Title: "JoJo's Bizarre Adventure: Phantom Blood", AltTitles: []string{"JoJo no Kimyou na Bouken: Phantom Blood"}, Type: "Movie", Episodes: 1},
+		{ID: "6678", Title: "JoJo's Bizarre Adventure Part 6: Stone Ocean Part 2", Type: "ONA", Episodes: 12},
+		{ID: "1815", Title: "JoJo's Bizarre Adventure", AltTitles: []string{"JoJo no Kimyou na Bouken"}, Type: "OVA", Episodes: 6},
+		{ID: "6742", Title: "JoJo's Bizarre Adventure: Battle Tendency", AltTitles: []string{"JoJo no Kimyou na Bouken: Battle Tendency"}, Type: "Movie", Episodes: 2},
+		{ID: "2483", Title: "JoJo's Bizarre Adventure", AltTitles: []string{"JoJo no Kimyou na Bouken: Adventure"}, Type: "OVA", Episodes: 7},
+		{ID: "6844", Title: "JoJo's Bizarre Adventure Part 2: Stardust Crusaders", Type: "TV", Episodes: 24},
+		{ID: "6845", Title: "JoJo's Bizarre Adventure", AltTitles: []string{"JoJo no Kimyou na Bouken"}, Type: "TV", Episodes: 26},
+		{ID: "1485", Title: "JoJo's Bizarre Adventure (Uncensored)", AltTitles: []string{"JoJo no Kimyou na Bouken (Uncensored)"}, Type: "TV", Episodes: 26},
+	}
+	base := &fakeProvider{name: "anikoto",
+		results: map[string][]domain.Show{"JoJo's Bizarre Adventure (TV)": shows, "JoJo no Kimyou na Bouken (TV)": shows},
+		ids: map[string][2]int{"514": {0, 666}, "6742": {0, 665}, "1815": {0, 666}, "2483": {0, 665},
+			"6678": {0, 51606}, "6844": {0, 20899}, "6845": {0, 14719}, "1485": {0, 14719}},
+	}
+	show, err := New(newStore()).Resolve(context.Background(), resolvingProvider{base}, jojo, domain.Sub)
+	if err != nil || show.ID != "6845" {
+		t.Fatalf("show=%+v err=%v (verified %v)", show, err, base.resolved)
+	}
+	if len(base.resolved) != 1 {
+		t.Errorf("verified %v, want the series first", base.resolved)
+	}
+}
+
+func TestEntriesWithoutIDsDontExhaustLookups(t *testing.T) {
+	// Anikoto's Stardust Crusaders: the right entry (mislabelled "Part 2") has no
+	// MAL ID; its uncensored copy does, but ranks fourth.
+	sc := anilist.Media{
+		ID: 20474, IDMal: 20899, Format: "TV", Episodes: 24, Status: "FINISHED", Year: 2014,
+		Title:    anilist.Title{English: "JoJo's Bizarre Adventure: Stardust Crusaders", Romaji: "JoJo no Kimyou na Bouken: Stardust Crusaders"},
+		Synonyms: []string{"JoJo's Bizarre Adventure Part 3: Stardust Crusaders"},
+	}
+	shows := []domain.Show{
+		{ID: "1640", Title: "JoJo's Bizarre Adventure Part 3: Stardust Crusaders 2nd Season (Uncensored)", Type: "TV", Episodes: 24},
+		{ID: "6843", Title: "JoJo's Bizarre Adventure Part 3: Stardust Crusaders 2nd Season", Type: "TV", Episodes: 24},
+		{ID: "6844", Title: "JoJo's Bizarre Adventure Part 2: Stardust Crusaders", Type: "TV", Episodes: 24},
+		{ID: "1503", Title: "JoJo's Bizarre Adventure Part 2: Stardust Crusaders (Uncensored)", Type: "TV", Episodes: 24},
+		{ID: "514", Title: "JoJo's Bizarre Adventure: Phantom Blood", Type: "Movie", Episodes: 1},
+		{ID: "6742", Title: "JoJo's Bizarre Adventure: Battle Tendency", Type: "Movie", Episodes: 2},
+	}
+	base := &fakeProvider{name: "anikoto",
+		results: map[string][]domain.Show{"JoJo's Bizarre Adventure: Stardust Crusaders": shows},
+		ids:     map[string][2]int{"1640": {0, 26055}, "1503": {0, 20899}, "514": {0, 666}, "6742": {0, 665}},
+	}
+	show, err := New(newStore()).Resolve(context.Background(), resolvingProvider{base}, sc, domain.Sub)
+	if err != nil || show.ID != "1503" {
+		t.Fatalf("show=%+v err=%v (verified %v)", show, err, base.resolved)
+	}
+	for _, id := range base.resolved {
+		if id == "514" || id == "6742" {
+			t.Errorf("looked up film %s while matching a series (verified %v)", id, base.resolved)
+		}
+	}
+}
+
+func TestFormatMatch(t *testing.T) {
+	for _, tc := range []struct {
+		format, typ string
+		want        idResult
+	}{
+		{"TV", "TV", matchYes},
+		{"TV_SHORT", "TV", matchYes},
+		{"ONA", "ONA", matchYes},
+		{"MOVIE", "Movie", matchYes},
+		{"TV", "ONA", matchUnknown},
+		{"OVA", "Special", matchUnknown},
+		{"TV", "Movie", matchNo},
+		{"MOVIE", "TV", matchNo},
+		{"TV", "", matchUnknown},
+	} {
+		if got := formatMatch(tc.format, tc.typ); got != tc.want {
+			t.Errorf("formatMatch(%q, %q) = %v, want %v", tc.format, tc.typ, got, tc.want)
+		}
+	}
+}
+
 func TestConflictingIDsAreRejectedEvenWithExactTitle(t *testing.T) {
 	p := &fakeProvider{name: "allanime", results: map[string][]domain.Show{
 		"Frieren: Beyond Journey's End Season 2": {
@@ -178,6 +262,9 @@ func TestNormalize(t *testing.T) {
 		"Attack on Titan: Final Season":            "attack on titan final season",
 		"Kaguya-sama: Love Is War – Second Season": "kaguya sama love is war season 2",
 		"Fate/stay night & UBW":                    "fate stay night and ubw",
+		"JoJo no Kimyou na Bouken (TV)":            "jojo no kimyou na bouken",
+		"Hunter x Hunter (2011)":                   "hunter x hunter",
+		"Mob Psycho 100 (Uncensored)":              "mob psycho 100 uncensored",
 	} {
 		if got := normalize(in); got != want {
 			t.Errorf("normalize(%q) = %q, want %q", in, got, want)

@@ -296,6 +296,56 @@ func newMappingCmds(app *App) []*cobra.Command {
 			},
 		},
 		{
+			Use:   "resolve <anilist-id> [provider]...",
+			Short: "Match an anime on providers (saving the mappings) and show the result",
+			Args:  cobra.MinimumNArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				ctx := cmd.Context()
+				id, err := mediaArg(args[0])
+				if err != nil {
+					return err
+				}
+				client, err := app.AniList(ctx)
+				if err != nil {
+					return err
+				}
+				media, err := client.Media(ctx, id)
+				if err != nil {
+					return err
+				}
+				reg, err := app.Providers(ctx)
+				if err != nil {
+					return err
+				}
+				mapper, err := app.Mapper(ctx)
+				if err != nil {
+					return err
+				}
+				names := args[1:]
+				if len(names) == 0 {
+					names = app.Config.Providers.Order
+				}
+				m, err := modeFlag(app, "", "")
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%s (%s, %d episodes)\n", media.DisplayTitle(), media.Format, media.Episodes)
+				for _, name := range names {
+					p, err := reg.Get(name)
+					if err != nil {
+						return err
+					}
+					show, err := mapper.Resolve(ctx, p, media, m)
+					if err != nil {
+						fmt.Fprintf(cmd.OutOrStdout(), "  %-10s %s\n", name, firstLineOf(err.Error()))
+						continue
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "  %-10s %s  %s\n", name, show.ID, show.Title)
+				}
+				return nil
+			},
+		},
+		{
 			Use:   "map <anilist-id> <provider> <show-id>",
 			Short: "Pin an anime to a provider show (overrides automatic matching)",
 			Args:  cobra.ExactArgs(3),

@@ -23,9 +23,13 @@ import (
 var ErrNoMatch = errors.New("no matching show")
 
 const (
-	// resolveCandidates is how many title-ranked candidates get their IDs looked
-	// up on providers whose search results lack them.
-	resolveCandidates = 3
+	// resolveCandidates is how many ranked candidates get their IDs looked up on
+	// providers whose search results lack them. Sites leave some entries without
+	// IDs, so a few more than the obvious one or two are worth a request each.
+	resolveCandidates = 5
+	// minResolveRank skips candidates not worth a lookup, such as films when
+	// looking for a series.
+	minResolveRank = 0.3
 	// minTitleScore is the similarity needed to accept a match on title alone.
 	minTitleScore = 0.92
 	// missTTL avoids repeating a failed search in the same session.
@@ -91,8 +95,9 @@ func (m *Mapper) Resolve(ctx context.Context, p provider.Provider, media anilist
 
 type candidate struct {
 	show     domain.Show
-	score    float64
-	rejected bool // IDs prove it's a different show
+	score    float64 // title similarity
+	rank     float64 // score adjusted for episode count, year and format
+	rejected bool    // IDs prove it's a different show
 }
 
 func (m *Mapper) match(ctx context.Context, p provider.Provider, media anilist.Media, mode domain.Mode) (domain.Show, error) {
@@ -114,6 +119,7 @@ func (m *Mapper) match(ctx context.Context, p provider.Provider, media anilist.M
 			}
 			seen[s.ID] = true
 			c := &candidate{show: s, score: titleScore(media, s)}
+			c.rank = rank(media, s, c.score)
 			switch idMatch(media, s) {
 			case matchYes:
 				return s, nil
@@ -127,7 +133,10 @@ func (m *Mapper) match(ctx context.Context, p provider.Provider, media anilist.M
 		return domain.Show{}, searchErr
 	}
 
-	slices.SortStableFunc(cands, func(a, b *candidate) int { return cmp.Compare(b.score, a.score) })
+	// Verify the most plausible candidates first. Title alone isn't enough: a
+	// series' synonyms often name its arcs, which are also films ("JoJo's
+	// Bizarre Adventure: Phantom Blood"), and those would crowd out the series.
+	slices.SortStableFunc(cands, func(a, b *candidate) int { return cmp.Compare(b.rank, a.rank) })
 
 	if r, ok := p.(provider.IDResolver); ok {
 		tried := 0
@@ -135,7 +144,7 @@ func (m *Mapper) match(ctx context.Context, p provider.Provider, media anilist.M
 			if tried == resolveCandidates {
 				break
 			}
-			if c.rejected || c.score < 0.3 {
+			if c.rejected || c.rank < minResolveRank {
 				continue
 			}
 			tried++
@@ -161,6 +170,7 @@ func (m *Mapper) match(ctx context.Context, p provider.Provider, media anilist.M
 			viable = append(viable, c)
 		}
 	}
+	slices.SortStableFunc(viable, func(a, b *candidate) int { return cmp.Compare(b.score, a.score) })
 	if len(viable) > 0 && viable[0].score >= minTitleScore &&
 		(len(viable) == 1 || viable[1].score < viable[0].score-0.05) {
 		return viable[0].show, nil
@@ -192,8 +202,45 @@ func idMatch(media anilist.Media, s domain.Show) idResult {
 	return matchUnknown
 }
 
-// compatible rejects title matches whose episode count or year clearly differ.
+// rank orders candidates for ID verification: title similarity, demoted when
+// the episode count, year or format contradicts the AniList entry.
+func rank(media anilist.Media, s domain.Show, score float64) float64 {
+	r := score
+	if !compatible(media, s) {
+		r -= 0.5
+	}
+	switch formatMatch(media.Format, s.Type) {
+	case matchYes:
+		r += 0.05
+	case matchNo:
+		r -= 0.3
+	}
+	return r
+}
+
+// formatMatch compares an AniList format (TV, TV_SHORT, MOVIE, OVA, ONA,
+// SPECIAL, MUSIC) with a provider's type label. Sites disagree on TV vs ONA and
+// OVA vs special, so only a film against anything else counts as a mismatch.
+func formatMatch(format, typ string) idResult {
+	f := strings.ToUpper(format)
+	t := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(typ), " ", "_"))
+	if f == "" || t == "" {
+		return matchUnknown
+	}
+	if f == t || (f == "TV_SHORT" && t == "TV") {
+		return matchYes
+	}
+	if (f == "MOVIE") != (t == "MOVIE") {
+		return matchNo
+	}
+	return matchUnknown
+}
+
+// compatible rejects title matches whose episode count, year or format clearly differ.
 func compatible(media anilist.Media, s domain.Show) bool {
+	if formatMatch(media.Format, s.Type) == matchNo {
+		return false
+	}
 	if aired := media.AiredEpisodes(); aired > 0 && s.Episodes > 0 {
 		diff := aired - s.Episodes
 		if diff < 0 {
@@ -239,16 +286,20 @@ func titleScore(media anilist.Media, s domain.Show) float64 {
 }
 
 var (
+	// qualifier matches disambiguators AniList adds to titles: "(TV)", "(2012)".
+	qualifier     = regexp.MustCompile(`(?i)\s*\((?:tv|\d{4})\)`)
 	ordinalSeason = regexp.MustCompile(`\b(\d+)(?:st|nd|rd|th) season\b`)
 	wordSeason    = regexp.MustCompile(`\b(first|second|third|fourth|fifth) season\b`)
 	seasonWords   = map[string]string{"first": "1", "second": "2", "third": "3", "fourth": "4", "fifth": "5"}
 )
 
-// NormalizeTitle lowercases, drops punctuation and apostrophes, and writes
-// season numbers one way ("2nd Season" and "Season 2" both become "season 2").
+// NormalizeTitle lowercases, drops punctuation, apostrophes and "(TV)"/"(2012)"
+// qualifiers, and writes season numbers one way ("2nd Season" and "Season 2"
+// both become "season 2").
 func NormalizeTitle(s string) string { return normalize(s) }
 
 func normalize(s string) string {
+	s = qualifier.ReplaceAllString(s, "")
 	s = strings.ToLower(s)
 	s = strings.NewReplacer("’", "", "'", "", "&", " and ").Replace(s)
 	s = strings.Map(func(r rune) rune {
