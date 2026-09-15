@@ -2,12 +2,14 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/EmoFa/anitui/internal/anilist"
+	"github.com/EmoFa/anitui/internal/auth"
 	"github.com/EmoFa/anitui/internal/browser"
 	"github.com/EmoFa/anitui/internal/httpx"
 	"github.com/EmoFa/anitui/internal/mapping"
@@ -20,6 +22,7 @@ import (
 	"github.com/EmoFa/anitui/internal/session"
 	"github.com/EmoFa/anitui/internal/streamcheck"
 	"github.com/EmoFa/anitui/internal/streamproxy"
+	"github.com/EmoFa/anitui/internal/tracker"
 )
 
 // HTTP returns the shared scraping client, with browser-based challenge solving
@@ -82,6 +85,10 @@ func (a *App) AniList(ctx context.Context) (*anilist.Client, error) {
 		return nil, err
 	}
 	a.anilist = anilist.New(client, st)
+	// Development only: point at a fake AniList to test syncing without an account.
+	if u := os.Getenv("ANITUI_ANILIST_API"); u != "" {
+		a.anilist = a.anilist.WithURL(u)
+	}
 	return a.anilist, nil
 }
 
@@ -95,6 +102,67 @@ func (a *App) Mapper(ctx context.Context) (*mapping.Mapper, error) {
 		a.mapper = mapping.New(st)
 	}
 	return a.mapper, nil
+}
+
+// DefaultAniListClientID is anitui's registered AniList API client, whose
+// redirect URL is auth.RedirectURL. tracking.anilist_client_id overrides it.
+const DefaultAniListClientID = 51172
+
+func (a *App) aniListClientID() int {
+	if id := a.Config.Tracking.AnilistClientID; id != 0 {
+		return id
+	}
+	return DefaultAniListClientID
+}
+
+func (a *App) tokenFile() auth.TokenFile {
+	return auth.TokenFile{Path: filepath.Join(a.Paths.ConfigDir, "anilist-token.json")}
+}
+
+// Tracker returns the list tracker, syncing to AniList when the backend is
+// "anilist" and the user is logged in.
+func (a *App) Tracker(ctx context.Context) (*tracker.Tracker, error) {
+	a.lazyMu.Lock()
+	defer a.lazyMu.Unlock()
+	if a.tracker != nil {
+		return a.tracker, nil
+	}
+	st, err := a.Store(ctx)
+	if err != nil {
+		return nil, err
+	}
+	t := &tracker.Tracker{Store: st}
+	if a.Config.Tracking.Backend == "anilist" {
+		tok, err := a.tokenFile().Load()
+		if err != nil {
+			return nil, err
+		}
+		if tok.Valid() {
+			al, err := a.AniList(ctx)
+			if err != nil {
+				return nil, err
+			}
+			t.Remote = tracker.AniListRemote{Client: al.WithToken(tok.AccessToken), UserID: tok.UserID}
+		}
+	}
+	a.tracker = t
+	return t, nil
+}
+
+// trackWatched is the session's OnWatched hook.
+func (a *App) trackWatched(ctx context.Context, media anilist.Media, episode float64) (string, error) {
+	t, err := a.Tracker(ctx)
+	if err != nil {
+		return "", err
+	}
+	r, err := t.EpisodeWatched(ctx, media, episode)
+	if err != nil {
+		return "", err
+	}
+	if errors.Is(r.SyncErr, anilist.ErrUnauthorized) {
+		return "list updated; AniList login expired, run `anitui login` to sync", nil
+	}
+	return r.Note(), nil
 }
 
 // Session builds a watch session wired to the real player, providers and store.
@@ -133,15 +201,18 @@ func (a *App) Session(ctx context.Context, onStatus func(session.Status)) (*sess
 		Play: func(ctx context.Context, req player.Request) (session.Playback, error) {
 			return mpv.Play(ctx, req)
 		},
-		Proxy:    func() (session.Proxy, error) { return a.StreamProxy() },
-		Check:    checker.Check,
-		OnStatus: onStatus,
+		Proxy:     func() (session.Proxy, error) { return a.StreamProxy() },
+		Check:     checker.Check,
+		OnWatched: a.trackWatched,
+		OnStatus:  onStatus,
 	}), nil
 }
 
 // Sniffer returns the shared headless browser used to run embed players. The
 // browser itself starts on first use.
 func (a *App) Sniffer() *browser.Sniffer {
+	a.lazyMu.Lock()
+	defer a.lazyMu.Unlock()
 	if a.sniffer == nil {
 		a.sniffer = &browser.Sniffer{
 			BinPath:      a.Config.Browser.Path,
@@ -154,6 +225,8 @@ func (a *App) Sniffer() *browser.Sniffer {
 
 // StreamProxy starts the local stream proxy on first use.
 func (a *App) StreamProxy() (*streamproxy.Proxy, error) {
+	a.lazyMu.Lock()
+	defer a.lazyMu.Unlock()
 	if a.proxy != nil {
 		return a.proxy, nil
 	}

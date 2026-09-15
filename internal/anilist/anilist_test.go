@@ -178,3 +178,56 @@ func TestTitlesDeduplicates(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestAuthenticatedCalls(t *testing.T) {
+	var auth []string
+	c, _ := server(t, func(w http.ResponseWriter, body string) {}) // provides the kv cache
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = append(auth, r.Header.Get("Authorization"))
+		b, _ := io.ReadAll(r.Body)
+		body := string(b)
+		switch {
+		case r.Header.Get("Authorization") != "Bearer tok":
+			w.WriteHeader(http.StatusUnauthorized)
+			io.WriteString(w, `{"errors":[{"message":"Invalid token","status":401}],"data":null}`)
+		case strings.Contains(body, "Viewer"):
+			io.WriteString(w, `{"data":{"Viewer":{"id":42,"name":"testuser","siteUrl":"https://anilist.co/user/testuser"}}}`)
+		case strings.Contains(body, "SaveMediaListEntry"):
+			if !strings.Contains(body, `"mediaId":182255`) || !strings.Contains(body, `"progress":5`) || !strings.Contains(body, `"status":"CURRENT"`) {
+				t.Errorf("mutation variables: %s", body)
+			}
+			io.WriteString(w, `{"data":{"SaveMediaListEntry":{"id":1,"status":"CURRENT","progress":5}}}`)
+		case strings.Contains(body, "MediaListCollection"):
+			io.WriteString(w, `{"data":{"MediaListCollection":{"lists":[
+				{"entries":[{"mediaId":182255,"status":"CURRENT","progress":5,"score":8.5,"updatedAt":1789400000,"media":{"id":182255,"title":{"english":"Frieren S2"}}}]},
+				{"entries":[{"mediaId":182255,"status":"CURRENT","progress":5,"score":8.5,"updatedAt":1789400000,"media":{"id":182255}},
+				            {"mediaId":154587,"status":"COMPLETED","progress":28,"score":0,"updatedAt":1789300000,"media":{"id":154587}}]}]}}}`)
+		}
+	}))
+	defer srv.Close()
+	c.url = srv.URL
+	ctx := context.Background()
+
+	if _, err := c.Viewer(ctx); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("anonymous viewer err = %v", err)
+	}
+	authed := c.WithToken("tok")
+	u, err := authed.Viewer(ctx)
+	if err != nil || u.ID != 42 || u.Name != "testuser" {
+		t.Fatalf("viewer = %+v err=%v", u, err)
+	}
+	if err := authed.SaveListEntry(ctx, 182255, "CURRENT", 5); err != nil {
+		t.Fatal(err)
+	}
+	items, err := authed.UserList(ctx, 42)
+	if err != nil || len(items) != 2 || items[0].Score != 8.5 || items[1].Status != "COMPLETED" || items[0].UpdatedAt.Unix() != 1789400000 {
+		t.Fatalf("items = %+v err=%v", items, err)
+	}
+	// The untitled stub for 154587 must not have been cached.
+	if _, _, ok, _ := authed.cache.GetKV(ctx, cacheKey(154587)); ok {
+		t.Error("cached media details without a title")
+	}
+	if auth[0] != "" {
+		t.Errorf("unauthenticated client sent %q", auth[0])
+	}
+}

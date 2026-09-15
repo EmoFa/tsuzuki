@@ -22,6 +22,14 @@ func runTUI(ctx context.Context, app *App) error {
 	if err != nil {
 		return err
 	}
+	// Store, HTTP client, AniList and mapper are built once here, before the
+	// UI calls them concurrently.
+	if _, err := app.HTTP(ctx); err != nil {
+		return err
+	}
+	if _, err := app.Mapper(ctx); err != nil {
+		return err
+	}
 	// Messages that would otherwise go to stderr are shown inside the UI. The
 	// channel is never closed: a background solver may still send after exit,
 	// and notify never blocks.
@@ -89,6 +97,55 @@ func (s *tuiServices) Watch(ctx context.Context, req session.Request, onStatus f
 		return err
 	}
 	return sess.Watch(ctx, req)
+}
+
+func (s *tuiServices) ListEntries(ctx context.Context, status string) ([]store.ListEntry, error) {
+	return s.store.ListEntries(ctx, status)
+}
+
+func (s *tuiServices) ListEntry(ctx context.Context, mediaID int) (*store.ListEntry, error) {
+	return s.store.ListEntry(ctx, mediaID)
+}
+
+func (s *tuiServices) SetListStatus(ctx context.Context, mediaID int, status string) (string, error) {
+	t, err := s.app.Tracker(ctx)
+	if err != nil {
+		return "", err
+	}
+	r, err := t.SetStatus(ctx, mediaID, status)
+	if err != nil {
+		return "", err
+	}
+	label := StatusLabel(r.Entry.Status)
+	switch {
+	case !r.Changed:
+		return "Already " + label + ".", nil
+	case r.Synced:
+		return "Set to " + label + " on AniList.", nil
+	case r.SyncErr != nil:
+		return "Set to " + label + "; AniList sync pending: " + firstLineOf(r.SyncErr.Error()), nil
+	}
+	return "Set to " + label + ".", nil
+}
+
+func (s *tuiServices) Account() tui.Account {
+	a := tui.Account{Backend: s.app.Config.Tracking.Backend}
+	if tok, err := s.app.tokenFile().Load(); err == nil && tok != nil {
+		a.User = tok.UserName
+		a.LoggedIn = tok.Valid()
+		a.Expired = !tok.Valid()
+	}
+	return a
+}
+
+func (s *tuiServices) Login(ctx context.Context) (string, error) {
+	return login(ctx, s.app, func(url string) {
+		s.app.notify("If your browser didn't open, visit " + url)
+	})
+}
+
+func (s *tuiServices) Sync(ctx context.Context) (string, error) {
+	return syncList(ctx, s.app)
 }
 
 func (s *tuiServices) Settings() tui.Settings {

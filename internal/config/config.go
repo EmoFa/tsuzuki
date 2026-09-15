@@ -117,7 +117,7 @@ func Default() Config {
 		},
 		Player:   Player{ExtraArgs: []string{}},
 		Browser:  Browser{Headless: true},
-		Tracking: Tracking{Backend: "local"},
+		Tracking: Tracking{Backend: "anilist"},
 		Skip: Skip{
 			Opening: "auto",
 			Ending:  "auto",

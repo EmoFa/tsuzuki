@@ -12,16 +12,35 @@ import (
 	"github.com/EmoFa/anitui/internal/domain"
 	"github.com/EmoFa/anitui/internal/session"
 	"github.com/EmoFa/anitui/internal/store"
+	"github.com/EmoFa/anitui/internal/tracker"
 )
 
 const recentLimit = 30
 
+// homeTab is "continue watching" (status "") or one list status.
+type homeTab struct {
+	title  string
+	status string
+}
+
+var homeTabs = []homeTab{
+	{"Continue watching", ""},
+	{"Watching", tracker.Current},
+	{"Planning", tracker.Planning},
+	{"Completed", tracker.Completed},
+	{"Paused", tracker.Paused},
+	{"Dropped", tracker.Dropped},
+	{"Rewatching", tracker.Repeating},
+}
+
 type homeItem struct {
 	media    anilist.Media
-	progress store.Progress
+	progress *store.Progress  // continue-watching tab
+	entry    *store.ListEntry // list tabs
 }
 
 type homeLoadedMsg struct {
+	tab   int
 	items []homeItem
 	err   error
 }
@@ -29,6 +48,7 @@ type homeLoadedMsg struct {
 type homeScreen struct {
 	ctx     context.Context
 	svc     Services
+	tab     int
 	loading bool
 	err     error
 	items   []homeItem
@@ -44,41 +64,59 @@ func (h *homeScreen) Refresh() tea.Cmd { return h.load() }
 func (h *homeScreen) Title() string    { return "Home" }
 
 func (h *homeScreen) load() tea.Cmd {
-	ctx, svc := h.ctx, h.svc
+	h.loading = true
+	ctx, svc, tab := h.ctx, h.svc, h.tab
 	return func() tea.Msg {
-		recent, err := svc.RecentShows(ctx, recentLimit)
-		if err != nil {
-			return homeLoadedMsg{err: err}
-		}
-		items := make([]homeItem, 0, len(recent))
-		for _, p := range recent {
-			m, err := svc.Media(ctx, p.MediaID)
+		var items []homeItem
+		media := func(id int) anilist.Media {
+			m, err := svc.Media(ctx, id)
 			if err != nil {
-				m = anilist.Media{ID: p.MediaID, Title: anilist.Title{Romaji: fmt.Sprintf("AniList #%d", p.MediaID)}}
+				m = anilist.Media{ID: id, Title: anilist.Title{Romaji: fmt.Sprintf("AniList #%d", id)}}
 			}
-			items = append(items, homeItem{media: m, progress: p})
+			return m
 		}
-		return homeLoadedMsg{items: items}
+		if status := homeTabs[tab].status; status == "" {
+			recent, err := svc.RecentShows(ctx, recentLimit)
+			if err != nil {
+				return homeLoadedMsg{tab: tab, err: err}
+			}
+			for i := range recent {
+				items = append(items, homeItem{media: media(recent[i].MediaID), progress: &recent[i]})
+			}
+		} else {
+			entries, err := svc.ListEntries(ctx, status)
+			if err != nil {
+				return homeLoadedMsg{tab: tab, err: err}
+			}
+			for i := range entries {
+				items = append(items, homeItem{media: media(entries[i].MediaID), entry: &entries[i]})
+			}
+		}
+		return homeLoadedMsg{tab: tab, items: items}
 	}
 }
 
 var (
 	keyResume   = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "continue"))
-	keyDetails  = key.NewBinding(key.WithKeys("d", "right", "l"), key.WithHelp("d", "details"))
+	keyDetails  = key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "details"))
 	keySearch   = key.NewBinding(key.WithKeys("/", "s"), key.WithHelp("/", "search"))
 	keySettings = key.NewBinding(key.WithKeys(","), key.WithHelp(",", "settings"))
+	keyTabs     = key.NewBinding(key.WithKeys("tab", "right", "shift+tab", "left"), key.WithHelp("←/→", "list tabs"))
 )
 
 func (h *homeScreen) Help() []key.Binding {
 	if len(h.items) == 0 {
-		return []key.Binding{keySearch, keySettings}
+		return []key.Binding{keySearch, keyTabs, keySettings}
 	}
-	return []key.Binding{keyResume, keyDetails, keySearch, keySettings}
+	return []key.Binding{keyResume, keyDetails, keySearch, keyTabs, keySettings}
 }
 
 func (h *homeScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 	switch msg := msg.(type) {
 	case homeLoadedMsg:
+		if msg.tab != h.tab {
+			return h, nil
+		}
 		h.loading, h.err = false, msg.err
 		if msg.err == nil {
 			h.items = msg.items
@@ -89,7 +127,16 @@ func (h *homeScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 		case key.Matches(msg, keySearch):
 			return h, push(newSearch(h.ctx, h.svc))
 		case key.Matches(msg, keySettings):
-			return h, push(newSettings(h.svc.Settings()))
+			return h, push(newSettings(h.ctx, h.svc))
+		case key.Matches(msg, keyTabs):
+			step := 1
+			if msg.String() == "left" || msg.String() == "shift+tab" {
+				step = -1
+			}
+			h.tab = (h.tab + step + len(homeTabs)) % len(homeTabs)
+			h.items = nil
+			h.list = list{}
+			return h, h.load()
 		}
 		if len(h.items) == 0 {
 			return h, nil
@@ -100,9 +147,13 @@ func (h *homeScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 			if caughtUp(it) {
 				return h, toast(fmt.Sprintf("You're caught up on %s.", it.media.DisplayTitle()), false)
 			}
-			return h, watch(session.Request{Media: it.media, Mode: domain.Mode(it.progress.Mode), Provider: it.progress.Provider})
+			req := session.Request{Media: it.media, Mode: modeOrDefault(it.mode(), h.svc)}
+			if it.progress != nil {
+				req.Provider = it.progress.Provider
+			}
+			return h, watch(req)
 		case key.Matches(msg, keyDetails):
-			return h, push(newDetails(h.ctx, h.svc, it.media, domain.Mode(it.progress.Mode)))
+			return h, push(newDetails(h.ctx, h.svc, it.media, it.mode()))
 		default:
 			h.list.handleKey(msg, 5)
 		}
@@ -110,29 +161,50 @@ func (h *homeScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 	return h, nil
 }
 
+func (it homeItem) mode() domain.Mode {
+	if it.progress != nil {
+		return domain.Mode(it.progress.Mode)
+	}
+	return ""
+}
+
+// caughtUp reports that nothing after the watched episodes has aired.
 func caughtUp(it homeItem) bool {
-	aired := it.media.AiredEpisodes()
-	return aired > 0 && nextEpisode(it.progress) > float64(aired)
+	aired := float64(it.media.AiredEpisodes())
+	switch {
+	case aired == 0:
+		return false
+	case it.progress != nil:
+		return nextEpisode(*it.progress) > aired
+	case it.entry != nil:
+		return float64(it.entry.Progress) >= aired
+	}
+	return false
 }
 
 func (h *homeScreen) View(width, height int) string {
 	var b strings.Builder
-	b.WriteString(styleSection.Render("Continue watching") + "\n\n")
+	b.WriteString("\n" + h.tabBar(width) + "\n\n")
 	switch {
-	case h.loading:
+	case h.loading && len(h.items) == 0:
 		b.WriteString(styleMuted.Render("Loading…"))
 		return b.String()
 	case h.err != nil:
-		b.WriteString(styleBad.Render("Couldn't load history: " + h.err.Error()))
+		b.WriteString(styleBad.Render("Couldn't load: " + h.err.Error()))
 		return b.String()
-	case len(h.items) == 0:
+	case len(h.items) == 0 && h.tab == 0:
 		b.WriteString("Nothing watched yet.\n\n")
 		b.WriteString("Press " + styleKey.Render("/") + " to search for an anime.")
 		return b.String()
+	case len(h.items) == 0:
+		b.WriteString(styleMuted.Render("Nothing here yet."))
+		if !h.svc.Account().LoggedIn {
+			b.WriteString("\n\n" + styleMuted.Render("Log in to AniList from settings (,) to bring in your list."))
+		}
+		return b.String()
 	}
 
-	// Two lines per show plus a gap.
-	rows := max((height-3)/3, 1)
+	rows := max((height-4)/3, 1)
 	start, end := h.list.window(rows)
 	for i := start; i < end; i++ {
 		it := h.items[i]
@@ -141,13 +213,28 @@ func (h *homeScreen) View(width, height int) string {
 			marker, titleStyle = styleSelected.Render("▌ "), styleSelected
 		}
 		b.WriteString(marker + titleStyle.Render(truncate(it.media.DisplayTitle(), width-4)) + "\n")
-		b.WriteString("  " + styleMuted.Render(truncate(progressLine(it), width-4)) + "\n\n")
+		b.WriteString("  " + styleMuted.Render(truncate(itemLine(it), width-4)) + "\n\n")
 	}
 	return b.String()
 }
 
-func progressLine(it homeItem) string {
-	p := it.progress
+func (h *homeScreen) tabBar(width int) string {
+	var parts []string
+	for i, t := range homeTabs {
+		if i == h.tab {
+			parts = append(parts, styleSelected.Render(t.title))
+		} else {
+			parts = append(parts, styleMuted.Render(t.title))
+		}
+	}
+	return truncate(strings.Join(parts, styleMuted.Render("  ·  ")), width)
+}
+
+func itemLine(it homeItem) string {
+	if it.entry != nil {
+		return entryLine(it.media, *it.entry)
+	}
+	p := *it.progress
 	var state string
 	switch {
 	case caughtUp(it):
@@ -162,4 +249,25 @@ func progressLine(it homeItem) string {
 		line += " · " + p.Provider
 	}
 	return line + " · " + ago(p.UpdatedAt)
+}
+
+func entryLine(m anilist.Media, e store.ListEntry) string {
+	total := "?"
+	if m.Episodes > 0 {
+		total = fmt.Sprint(m.Episodes)
+	}
+	line := fmt.Sprintf("%s · %d/%s episodes", statusName(e.Status), e.Progress, total)
+	if e.Score > 0 {
+		line += fmt.Sprintf(" · score %.1f", e.Score)
+	}
+	return line + " · " + ago(e.UpdatedAt)
+}
+
+func statusName(s string) string {
+	for _, t := range homeTabs {
+		if t.status == s && s != "" {
+			return t.title
+		}
+	}
+	return strings.ToLower(s)
 }

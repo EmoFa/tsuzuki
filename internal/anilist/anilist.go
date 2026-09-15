@@ -21,7 +21,11 @@ const DefaultURL = "https://graphql.anilist.co"
 // aggressively (30-90 requests/minute), so details are cached.
 const mediaTTL = 12 * time.Hour
 
-var ErrNotFound = errors.New("anilist: not found")
+var (
+	ErrNotFound = errors.New("anilist: not found")
+	// ErrUnauthorized means the access token is missing, expired or revoked.
+	ErrUnauthorized = errors.New("anilist: not logged in or token expired")
+)
 
 const mediaFields = `id idMal title { romaji english native } synonyms format status episodes duration
 season seasonYear coverImage { extraLarge large color } bannerImage description(asHtml: false)
@@ -103,7 +107,22 @@ type Cache interface {
 type Client struct {
 	http  *httpx.Client
 	url   string
-	cache Cache // optional
+	cache Cache  // optional
+	token string // for authenticated requests
+}
+
+// WithURL returns a client for a different GraphQL endpoint (for testing).
+func (c *Client) WithURL(url string) *Client {
+	cp := *c
+	cp.url = url
+	return &cp
+}
+
+// WithToken returns a client that sends token with every request.
+func (c *Client) WithToken(token string) *Client {
+	cp := *c
+	cp.token = token
+	return &cp
 }
 
 func New(client *httpx.Client, cache Cache) *Client {
@@ -192,6 +211,9 @@ type gqlResponse struct {
 func (c *Client) query(ctx context.Context, q string, vars map[string]any, out any) error {
 	payload := map[string]any{"query": q, "variables": vars}
 	headers := map[string]string{"Accept": "application/json"}
+	if c.token != "" {
+		headers["Authorization"] = "Bearer " + c.token
+	}
 	for attempt := 0; ; attempt++ {
 		var resp gqlResponse
 		err := c.http.PostJSON(ctx, c.url, headers, payload, &resp)
@@ -204,6 +226,9 @@ func (c *Client) query(ctx context.Context, q string, vars map[string]any, out a
 				}
 				continue
 			}
+			if se.StatusCode == 401 {
+				return ErrUnauthorized
+			}
 			// AniList reports GraphQL errors (e.g. not found) with HTTP status codes.
 			if json.Unmarshal([]byte(se.Body), &resp) == nil && len(resp.Errors) > 0 {
 				err = nil
@@ -213,8 +238,11 @@ func (c *Client) query(ctx context.Context, q string, vars map[string]any, out a
 			return err
 		}
 		if len(resp.Errors) > 0 {
-			if resp.Errors[0].Status == 404 {
+			switch msg := strings.ToLower(resp.Errors[0].Message); {
+			case resp.Errors[0].Status == 404:
 				return ErrNotFound
+			case resp.Errors[0].Status == 401, strings.Contains(msg, "invalid token"), strings.Contains(msg, "unauthorized"):
+				return ErrUnauthorized
 			}
 			return fmt.Errorf("anilist: %s", resp.Errors[0].Message)
 		}
@@ -240,4 +268,98 @@ func sleep(ctx context.Context, d time.Duration) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// User is the logged-in AniList user.
+type User struct {
+	ID      int    `json:"id"`
+	Name    string `json:"name"`
+	SiteURL string `json:"siteUrl"`
+}
+
+// Viewer returns the user the token belongs to.
+func (c *Client) Viewer(ctx context.Context) (User, error) {
+	var data struct {
+		Viewer *User `json:"Viewer"`
+	}
+	if err := c.query(ctx, `query { Viewer { id name siteUrl } }`, nil, &data); err != nil {
+		return User{}, fmt.Errorf("anilist viewer: %w", err)
+	}
+	if data.Viewer == nil {
+		return User{}, ErrUnauthorized
+	}
+	return *data.Viewer, nil
+}
+
+// SaveListEntry sets a show's status and progress on the logged-in user's list.
+func (c *Client) SaveListEntry(ctx context.Context, mediaID int, status string, progress int) error {
+	var data struct {
+		Entry *struct {
+			ID int `json:"id"`
+		} `json:"SaveMediaListEntry"`
+	}
+	q := `mutation ($mediaId: Int, $status: MediaListStatus, $progress: Int) {
+		SaveMediaListEntry(mediaId: $mediaId, status: $status, progress: $progress) { id status progress } }`
+	vars := map[string]any{"mediaId": mediaID, "status": status, "progress": progress}
+	if err := c.query(ctx, q, vars, &data); err != nil {
+		return fmt.Errorf("anilist save list entry: %w", err)
+	}
+	if data.Entry == nil {
+		return errors.New("anilist save list entry: no entry returned")
+	}
+	return nil
+}
+
+// ListItem is an entry on a user's AniList anime list.
+type ListItem struct {
+	MediaID   int
+	Status    string
+	Progress  int
+	Score     float64 // out of 10
+	UpdatedAt time.Time
+	Media     Media
+}
+
+// UserList fetches every entry on a user's anime list. Media details are cached.
+func (c *Client) UserList(ctx context.Context, userID int) ([]ListItem, error) {
+	var data struct {
+		Collection struct {
+			Lists []struct {
+				Entries []struct {
+					MediaID   int     `json:"mediaId"`
+					Status    string  `json:"status"`
+					Progress  int     `json:"progress"`
+					Score     float64 `json:"score"`
+					UpdatedAt int64   `json:"updatedAt"`
+					Media     Media   `json:"media"`
+				} `json:"entries"`
+			} `json:"lists"`
+		} `json:"MediaListCollection"`
+	}
+	q := `query ($userId: Int) { MediaListCollection(userId: $userId, type: ANIME) { lists { entries {
+		mediaId status progress score(format: POINT_10_DECIMAL) updatedAt media { ` + mediaFields + ` } } } } }`
+	if err := c.query(ctx, q, map[string]any{"userId": userID}, &data); err != nil {
+		return nil, fmt.Errorf("anilist user list: %w", err)
+	}
+	seen := map[int]bool{}
+	var out []ListItem
+	for _, l := range data.Collection.Lists {
+		// A show can appear in custom lists too; keep the first.
+		for _, e := range l.Entries {
+			if seen[e.MediaID] {
+				continue
+			}
+			seen[e.MediaID] = true
+			// Only cache complete details; never replace good cached ones with a stub.
+			if e.Media.ID != 0 && e.Media.DisplayTitle() != "" {
+				c.store(ctx, e.Media)
+			}
+			item := ListItem{MediaID: e.MediaID, Status: e.Status, Progress: e.Progress, Score: e.Score, Media: e.Media}
+			if e.UpdatedAt > 0 {
+				item.UpdatedAt = time.Unix(e.UpdatedAt, 0)
+			}
+			out = append(out, item)
+		}
+	}
+	return out, nil
 }

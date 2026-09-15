@@ -37,9 +37,10 @@ headless = true
 auto_download = false
 
 [tracking]
-# Where watch progress is tracked: "local" or "anilist".
-backend = "local"
-# AniList API client ID for login. 0 uses the built-in client.
+# "anilist": keep your list locally and sync it to AniList whenever you're logged
+# in (`anitui login`). "local": never send anything to AniList.
+backend = "anilist"
+# AniList API client ID used by `anitui login`. 0 uses anitui's own client.
 anilist_client_id = 0
 
 [skip]

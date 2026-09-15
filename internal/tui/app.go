@@ -136,7 +136,13 @@ func Run(ctx context.Context, svc Services, notices <-chan string) error {
 	return err
 }
 
-func (m *Model) Init() tea.Cmd { return m.top().Init() }
+func (m *Model) Init() tea.Cmd {
+	cmds := []tea.Cmd{m.top().Init()}
+	if m.svc.Account().Syncs() {
+		cmds = append(cmds, syncCmd(m.ctx, m.svc, true))
+	}
+	return tea.Batch(cmds...)
+}
 
 func (m *Model) top() screen { return m.stack[len(m.stack)-1] }
 
@@ -215,6 +221,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case watchDoneMsg:
 		return m, m.watchDone(msg)
+
+	case syncDoneMsg:
+		var cmds []tea.Cmd
+		switch {
+		case msg.err != nil:
+			cmds = append(cmds, toast("AniList sync: "+firstLine(msg.err.Error()), true))
+		case !msg.silent:
+			cmds = append(cmds, toast(msg.note, false))
+		}
+		if r, ok := m.top().(refresher); ok {
+			cmds = append(cmds, r.Refresh())
+		}
+		s, cmd := m.top().Update(msg)
+		m.stack[len(m.stack)-1] = s
+		return m, tea.Batch(append(cmds, cmd)...)
 	}
 
 	s, cmd := m.top().Update(msg)

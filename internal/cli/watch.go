@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -183,6 +184,15 @@ func watch(ctx context.Context, app *App, mediaID int, episode float64, mode dom
 		episode = next
 	}
 
+	// Send list changes left over from earlier runs before starting.
+	if t, err := app.Tracker(ctx); err == nil && t.Remote != nil {
+		flushCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		if _, err := t.Flush(flushCtx); err != nil {
+			slog.Warn("sending queued list changes", "err", err)
+		}
+		cancel()
+	}
+
 	printer := &statusPrinter{w: os.Stderr}
 	sess, err := app.Session(ctx, printer.print)
 	if err != nil {
@@ -239,6 +249,12 @@ func (p *statusPrinter) print(s session.Status) {
 		p.onProgress = true
 	case session.StatusWatched:
 		p.line("✓ Episode %s marked as watched", ep)
+	case session.StatusTracked:
+		if s.Err != nil {
+			p.line("  ✗ updating your list: %s", firstLineOf(s.Err.Error()))
+		} else {
+			p.line("  %s", s.Reason)
+		}
 	case session.StatusStopped:
 		if s.Reason != "eof" && s.Duration > 0 {
 			p.line("Stopped episode %s at %s / %s", ep, clock(s.Position), clock(s.Duration))

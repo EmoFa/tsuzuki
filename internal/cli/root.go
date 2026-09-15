@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/spf13/cobra"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/EmoFa/anitui/internal/mapping"
 	"github.com/EmoFa/anitui/internal/store"
 	"github.com/EmoFa/anitui/internal/streamproxy"
+	"github.com/EmoFa/anitui/internal/tracker"
 )
 
 // skipConfigAnnotation marks commands that must work even when the config file
@@ -29,12 +31,16 @@ type App struct {
 	ConfigPath string
 	Config     config.Config
 
-	store     *store.Store
-	http      *httpx.Client
-	anilist   *anilist.Client
-	proxy     *streamproxy.Proxy
-	sniffer   *browser.Sniffer
-	mapper    *mapping.Mapper
+	store   *store.Store
+	http    *httpx.Client
+	anilist *anilist.Client
+	proxy   *streamproxy.Proxy
+	sniffer *browser.Sniffer
+	mapper  *mapping.Mapper
+	// lazyMu guards the lazily built services below. The TUI calls them from
+	// several goroutines, and login replaces the tracker.
+	lazyMu    sync.Mutex
+	tracker   *tracker.Tracker
 	notices   chan<- string // set while the TUI runs
 	closeLogs func() error
 }
@@ -117,6 +123,11 @@ func NewRootCmd() (*cobra.Command, *App) {
 		newWatchCmd(app),
 		newContinueCmd(app),
 		newHistoryCmd(app),
+		newListCmd(app),
+		newLoginCmd(app),
+		newLogoutCmd(app),
+		newWhoamiCmd(app),
+		newSyncCmd(app),
 		newDoctorCmd(app),
 		newDebugCmd(app),
 	)

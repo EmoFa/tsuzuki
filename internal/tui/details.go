@@ -21,6 +21,15 @@ type detailsProgressMsg struct {
 	err      error
 }
 
+type detailsEntryMsg struct {
+	entry *store.ListEntry
+}
+
+type detailsStatusMsg struct {
+	note string
+	err  error
+}
+
 type detailsEpisodesMsg struct {
 	mode     domain.Mode
 	episodes []domain.Episode
@@ -43,6 +52,9 @@ type detailsScreen struct {
 	episodesErr     error
 	cursorPlaced    bool
 	list            list
+
+	entry         *store.ListEntry
+	pickingStatus bool
 }
 
 func newDetails(ctx context.Context, svc Services, media anilist.Media, mode domain.Mode) *detailsScreen {
@@ -54,14 +66,25 @@ func newDetails(ctx context.Context, svc Services, media anilist.Media, mode dom
 func (d *detailsScreen) Title() string { return truncate(d.media.DisplayTitle(), 40) }
 
 func (d *detailsScreen) Init() tea.Cmd {
-	cmds := []tea.Cmd{d.loadProgress()}
+	cmds := []tea.Cmd{d.loadProgress(), d.loadEntry()}
 	if d.media.AiredEpisodes() == 0 {
 		cmds = append(cmds, d.loadEpisodes())
 	}
 	return tea.Batch(cmds...)
 }
 
-func (d *detailsScreen) Refresh() tea.Cmd { return d.loadProgress() }
+func (d *detailsScreen) Refresh() tea.Cmd { return tea.Batch(d.loadProgress(), d.loadEntry()) }
+
+func (d *detailsScreen) loadEntry() tea.Cmd {
+	ctx, svc, id := d.ctx, d.svc, d.media.ID
+	return func() tea.Msg {
+		e, err := svc.ListEntry(ctx, id)
+		if err != nil {
+			return detailsEntryMsg{}
+		}
+		return detailsEntryMsg{e}
+	}
+}
 
 func (d *detailsScreen) loadProgress() tea.Cmd {
 	ctx, svc, id := d.ctx, d.svc, d.media.ID
@@ -84,11 +107,19 @@ var (
 	keyPlay     = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "play episode"))
 	keyContinue = key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "continue"))
 	keyMode     = key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "sub/dub"))
+	keyStatus   = key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "list status"))
 )
 
 func (d *detailsScreen) Help() []key.Binding {
-	return []key.Binding{keyPlay, keyContinue, keyMode}
+	if d.pickingStatus {
+		return []key.Binding{key.NewBinding(key.WithKeys("1"), key.WithHelp("1-6", "choose status")),
+			key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel"))}
+	}
+	return []key.Binding{keyPlay, keyContinue, keyMode, keyStatus}
 }
+
+// CapturesInput keeps esc for cancelling the status picker.
+func (d *detailsScreen) CapturesInput() bool { return d.pickingStatus }
 
 func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -109,6 +140,15 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 			}
 		}
 
+	case detailsEntryMsg:
+		d.entry = msg.entry
+
+	case detailsStatusMsg:
+		if msg.err != nil {
+			return d, toast("Couldn't change list status: "+firstLine(msg.err.Error()), true)
+		}
+		return d, tea.Batch(toast(msg.note, false), d.loadEntry())
+
 	case detailsEpisodesMsg:
 		if msg.mode != d.mode {
 			return d, nil
@@ -121,7 +161,17 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 		d.setNumbers()
 
 	case tea.KeyPressMsg:
+		if d.pickingStatus {
+			d.pickingStatus = false
+			if i := strings.IndexAny("123456", msg.String()); len(msg.String()) == 1 && i >= 0 {
+				return d, d.setStatus(homeTabs[i+1].status)
+			}
+			return d, nil
+		}
 		switch {
+		case key.Matches(msg, keyStatus):
+			d.pickingStatus = true
+			return d, nil
 		case key.Matches(msg, keyPlay):
 			if len(d.numbers) == 0 {
 				return d, nil
@@ -144,6 +194,14 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 		}
 	}
 	return d, nil
+}
+
+func (d *detailsScreen) setStatus(status string) tea.Cmd {
+	ctx, svc, id := d.ctx, d.svc, d.media.ID
+	return func() tea.Msg {
+		note, err := svc.SetListStatus(ctx, id, status)
+		return detailsStatusMsg{note, err}
+	}
 }
 
 // setNumbers rebuilds the episode list from AniList's aired count, the
@@ -198,6 +256,18 @@ func (d *detailsScreen) View(width, height int) string {
 	b.WriteString(styleInfo.Render(truncate(mediaMeta(m), width)) + "\n")
 	if len(m.Genres) > 0 {
 		b.WriteString(styleMuted.Render(truncate(strings.Join(m.Genres, ", "), width)) + "\n")
+	}
+	switch {
+	case d.pickingStatus:
+		var opts []string
+		for i, t := range homeTabs[1:] {
+			opts = append(opts, styleKey.Render(fmt.Sprint(i+1))+" "+t.title)
+		}
+		b.WriteString(styleWarn.Render("Set list status: ") + truncate(strings.Join(opts, "  "), width-17) + "\n")
+	case d.entry != nil:
+		b.WriteString(styleGood.Render(truncate("On your list: "+entryLine(m, *d.entry), width)) + "\n")
+	default:
+		b.WriteString(styleMuted.Render("Not on your list · l to add") + "\n")
 	}
 	if desc := plainDescription(m.Description); desc != "" {
 		// Leave room for clampLines' ellipsis so it never wraps.

@@ -58,6 +58,7 @@ type ProgressStore interface {
 	SaveProgress(ctx context.Context, p store.Progress) error
 	EpisodeProgress(ctx context.Context, mediaID int, episode float64) (*store.Progress, error)
 	ShowProgress(ctx context.Context, mediaID int) ([]store.Progress, error)
+	ListEntry(ctx context.Context, mediaID int) (*store.ListEntry, error)
 }
 
 // Playback is the part of *player.Playback the session uses.
@@ -83,6 +84,9 @@ type Deps struct {
 	Proxy     func() (Proxy, error) // started lazily, only for streams that need it
 	// Check verifies a stream serves media before it is played. Nil skips checks.
 	Check func(ctx context.Context, s domain.Stream) error
+	// OnWatched records a watched episode on the user's list (the tracker),
+	// returning a note for the UI. Nil disables tracking.
+	OnWatched func(ctx context.Context, media anilist.Media, episode float64) (string, error)
 	// OnStatus receives updates for the UI. May be nil.
 	OnStatus func(Status)
 }
@@ -95,6 +99,7 @@ const (
 	StatusPlaying                              // playback started; Stream, Start set
 	StatusProgress                             // Position/Duration updated
 	StatusWatched                              // Episode crossed the watched threshold
+	StatusTracked                              // the list was updated for Episode; Reason is a note, Err a failure
 	StatusStopped                              // playback ended; Reason set
 	StatusNoNextEpisode                        // autoplay found nothing after Episode
 )
@@ -193,20 +198,29 @@ func (s *Session) lastProvider(ctx context.Context, mediaID int) string {
 }
 
 // NextToWatch returns the episode to continue with: the most recently watched
-// one if unfinished, otherwise the one after it (episode 1 for new shows).
+// one if unfinished, otherwise the one after it (episode 1 for new shows). A
+// list entry further along (e.g. synced from AniList, watched elsewhere) wins.
 func NextToWatch(ctx context.Context, progress ProgressStore, mediaID int) (float64, error) {
 	eps, err := progress.ShowProgress(ctx, mediaID)
 	if err != nil {
 		return 0, err
 	}
-	if len(eps) == 0 {
-		return 1, nil
+	next := 1.0
+	if len(eps) > 0 {
+		latest := slices.MaxFunc(eps, func(a, b store.Progress) int { return a.UpdatedAt.Compare(b.UpdatedAt) })
+		next = latest.Episode
+		if latest.Completed {
+			next = math.Floor(latest.Episode) + 1
+		}
 	}
-	latest := slices.MaxFunc(eps, func(a, b store.Progress) int { return a.UpdatedAt.Compare(b.UpdatedAt) })
-	if !latest.Completed {
-		return latest.Episode, nil
+	entry, err := progress.ListEntry(ctx, mediaID)
+	if err != nil {
+		return 0, err
 	}
-	return math.Floor(latest.Episode) + 1, nil
+	if entry != nil && float64(entry.Progress+1) > next {
+		next = float64(entry.Progress + 1)
+	}
+	return next, nil
 }
 
 type resolved struct {
@@ -393,6 +407,15 @@ func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, m
 			w := base
 			w.Kind, w.Position, w.Duration = StatusWatched, st.Position, st.Duration
 			s.status(w)
+			if s.OnWatched != nil {
+				// Survives an interrupt: quitting right after an episode still tracks it.
+				tctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+				note, err := s.OnWatched(tctx, media, res.episode.Number)
+				cancel()
+				tr := base
+				tr.Kind, tr.Reason, tr.Err = StatusTracked, note, err
+				s.status(tr)
+			}
 		}
 		p := store.Progress{
 			MediaID: media.ID, Episode: res.episode.Number,

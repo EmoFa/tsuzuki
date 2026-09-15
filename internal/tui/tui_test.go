@@ -30,6 +30,7 @@ type fakeServices struct {
 	mu       sync.Mutex
 	progress []store.Progress
 	watches  []session.Request
+	entries  []store.ListEntry
 }
 
 func (f *fakeServices) Search(context.Context, string) ([]anilist.Media, error) {
@@ -81,6 +82,37 @@ func (f *fakeServices) Watch(ctx context.Context, req session.Request, onStatus 
 	f.mu.Unlock()
 	return ctx.Err()
 }
+
+func (f *fakeServices) ListEntries(context.Context, string) ([]store.ListEntry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.entries, nil
+}
+
+func (f *fakeServices) ListEntry(_ context.Context, id int) (*store.ListEntry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.entries {
+		if f.entries[i].MediaID == id {
+			e := f.entries[i]
+			return &e, nil
+		}
+	}
+	return nil, nil
+}
+
+func (f *fakeServices) SetListStatus(_ context.Context, id int, status string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.entries = append(f.entries, store.ListEntry{MediaID: id, Status: status, UpdatedAt: time.Now()})
+	return "list updated", nil
+}
+
+func (f *fakeServices) Account() Account { return Account{Backend: "anilist"} }
+func (f *fakeServices) Login(context.Context) (string, error) {
+	return "", errors.New("unused")
+}
+func (f *fakeServices) Sync(context.Context) (string, error) { return "", nil }
 
 func (f *fakeServices) Settings() Settings {
 	return Settings{Config: config.Default(), ConfigPath: "/cfg/config.toml", DataDir: "/data", CacheDir: "/cache"}
@@ -308,5 +340,46 @@ func TestTryAnotherProviderSkipsCurrent(t *testing.T) {
 	_, cmd = m.Update(press("n"))
 	if next := runBatch(cmd)[0].(watchMsg).req; next.Episode != 4 || next.SkipProviders != nil {
 		t.Fatalf("next = %+v", next)
+	}
+}
+
+func TestHomeListTabsAndDetailsStatusPicker(t *testing.T) {
+	svc := &fakeServices{entries: []store.ListEntry{{MediaID: frieren2.ID, Status: "CURRENT", Progress: 4, UpdatedAt: time.Now()}}}
+	m := New(context.Background(), svc)
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	home := m.top().(*homeScreen)
+
+	// Switch to the Watching tab and load it.
+	_, cmd := m.Update(press("right"))
+	for _, msg := range runBatch(cmd) {
+		m.Update(msg)
+	}
+	if home.tab != 1 || len(home.items) != 1 {
+		t.Fatalf("tab=%d items=%d", home.tab, len(home.items))
+	}
+	view := home.View(100, 20)
+	if !strings.Contains(view, "Watching · 4/10 episodes") {
+		t.Fatalf("home view:\n%s", view)
+	}
+
+	// Details shows the entry; the picker sets a new status.
+	d := newDetails(context.Background(), svc, frieren2, domain.Sub)
+	for _, msg := range runBatch(d.loadEntry()) {
+		d.Update(msg)
+	}
+	if !strings.Contains(d.View(100, 30), "On your list: Watching") {
+		t.Fatalf("details view:\n%s", d.View(100, 30))
+	}
+	d.Update(press("l"))
+	if !d.CapturesInput() || !strings.Contains(d.View(100, 30), "Set list status") {
+		t.Fatal("status picker not shown")
+	}
+	_, cmd = d.Update(press("2"))
+	msgs := runBatch(cmd)
+	if len(msgs) != 1 || d.CapturesInput() {
+		t.Fatalf("msgs=%+v picking=%v", msgs, d.pickingStatus)
+	}
+	if svc.entries[len(svc.entries)-1].Status != "PLANNING" {
+		t.Fatalf("entries = %+v", svc.entries)
 	}
 }

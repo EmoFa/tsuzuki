@@ -126,6 +126,12 @@ func (p *playingScreen) apply(st session.Status) {
 	case session.StatusWatched:
 		p.watched = true
 		p.logf("✓ Episode %s marked as watched", episodeLabel(st.Episode))
+	case session.StatusTracked:
+		if st.Err != nil {
+			p.logf("✗ Updating your list: %s", firstLine(st.Err.Error()))
+		} else {
+			p.logf("  %s", st.Reason)
+		}
 	case session.StatusStopped:
 		if st.Reason == "eof" {
 			p.logf("Episode %s finished", episodeLabel(st.Episode))

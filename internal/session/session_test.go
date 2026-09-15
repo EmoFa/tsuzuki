@@ -404,3 +404,51 @@ func TestPrefersLastProviderAndHonoursSkip(t *testing.T) {
 		t.Fatalf("played %s, want senshi (others skipped)", h.requests[1].URL)
 	}
 }
+
+func TestOnWatchedTracksOncePerEpisode(t *testing.T) {
+	p := &fakeProvider{name: "senshi", eps: 3}
+	h := newHarness(t, []provider.Provider{p},
+		script{
+			events: []player.Event{
+				{Kind: player.EventPosition, Position: 21 * time.Minute, Duration: 24 * time.Minute},
+				{Kind: player.EventPause},
+				{Kind: player.EventSeek},
+				{Kind: player.EventEndFile, Reason: "quit"},
+			},
+			final: player.State{Position: 23 * time.Minute, Duration: 24 * time.Minute, EndReason: "quit"},
+		},
+	)
+	var tracked []float64
+	h.sess.OnWatched = func(_ context.Context, m anilist.Media, ep float64) (string, error) {
+		tracked = append(tracked, ep)
+		return "AniList updated: episode 2", nil
+	}
+	if err := h.sess.Watch(context.Background(), Request{Media: media, Episode: 2, Mode: domain.Sub}); err != nil {
+		t.Fatal(err)
+	}
+	if len(tracked) != 1 || tracked[0] != 2 {
+		t.Fatalf("tracked = %v", tracked)
+	}
+	st := h.kinds(StatusTracked)
+	if len(st) != 1 || st[0].Reason != "AniList updated: episode 2" {
+		t.Fatalf("tracked statuses = %+v", st)
+	}
+}
+
+func TestNextToWatchUsesListProgress(t *testing.T) {
+	h := newHarness(t, nil)
+	ctx := context.Background()
+	if next, _ := NextToWatch(ctx, h.store, media.ID); next != 1 {
+		t.Fatalf("new show: next = %v", next)
+	}
+	// Watched 5 episodes elsewhere (synced from AniList), none locally.
+	h.store.SaveListEntry(ctx, store.ListEntry{MediaID: media.ID, Status: "CURRENT", Progress: 5})
+	if next, _ := NextToWatch(ctx, h.store, media.ID); next != 6 {
+		t.Fatalf("list progress 5: next = %v", next)
+	}
+	// Local history further along wins.
+	h.store.SaveProgress(ctx, store.Progress{MediaID: media.ID, Episode: 8, Position: time.Minute, Duration: 24 * time.Minute, Provider: "x", Mode: "sub"})
+	if next, _ := NextToWatch(ctx, h.store, media.ID); next != 8 {
+		t.Fatalf("unfinished local episode 8: next = %v", next)
+	}
+}
