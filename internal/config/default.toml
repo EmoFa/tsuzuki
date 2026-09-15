@@ -16,8 +16,8 @@ resume_rewind_seconds = 5
 
 [providers]
 # Providers are tried in this order until one returns a working stream.
-# Available: "senshi", "anineko", "allanime", "animepahe".
-order = ["senshi", "anineko", "allanime", "animepahe"]
+# Available: "senshi", "allanime", "animepahe".
+order = ["senshi", "allanime", "animepahe"]
 # How long to wait when checking that a stream URL actually responds.
 health_check_timeout = "5s"
 

@@ -36,8 +36,7 @@ func (a *App) HTTP(ctx context.Context) (*httpx.Client, error) {
 	return a.http, nil
 }
 
-// Providers returns every implemented provider. AniNeko is listed in config but
-// not implemented (see docs/providers/status.md).
+// Providers returns every implemented provider.
 func (a *App) Providers(ctx context.Context) (*provider.Registry, error) {
 	client, err := a.HTTP(ctx)
 	if err != nil {
