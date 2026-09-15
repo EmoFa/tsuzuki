@@ -1,4 +1,9 @@
-# tsuzuki
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo.png">
+    <img src="docs/assets/logo-light.png" alt="tsuzuki" width="480">
+  </picture>
+</p>
 
 Watch anime from your terminal. Find a show, pick an episode, and tsuzuki plays it
 in [mpv](https://mpv.io), remembering where you stopped and keeping your
