@@ -249,6 +249,10 @@ func (p *statusPrinter) print(s session.Status) {
 		p.onProgress = true
 	case session.StatusWatched:
 		p.line("✓ Episode %s marked as watched", ep)
+	case session.StatusEpisodeSkipped:
+		p.line("⏭ Skipping %s (%s)", session.EpisodeRange(s.Episode, s.Through), s.Reason)
+	case session.StatusSkipped:
+		p.line("  ⏭ Skipped %s", s.Reason)
 	case session.StatusTracked:
 		if s.Err != nil {
 			p.line("  ✗ updating your list: %s", firstLineOf(s.Err.Error()))

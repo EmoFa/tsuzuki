@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/EmoFa/anitui/internal/anilist"
 	"github.com/EmoFa/anitui/internal/auth"
 	"github.com/EmoFa/anitui/internal/browser"
+	"github.com/EmoFa/anitui/internal/domain"
 	"github.com/EmoFa/anitui/internal/httpx"
 	"github.com/EmoFa/anitui/internal/mapping"
 	"github.com/EmoFa/anitui/internal/player"
@@ -20,6 +22,7 @@ import (
 	"github.com/EmoFa/anitui/internal/provider/animepahe"
 	"github.com/EmoFa/anitui/internal/provider/senshi"
 	"github.com/EmoFa/anitui/internal/session"
+	"github.com/EmoFa/anitui/internal/skip"
 	"github.com/EmoFa/anitui/internal/streamcheck"
 	"github.com/EmoFa/anitui/internal/streamproxy"
 	"github.com/EmoFa/anitui/internal/tracker"
@@ -149,6 +152,21 @@ func (a *App) Tracker(ctx context.Context) (*tracker.Tracker, error) {
 	return t, nil
 }
 
+// FillerList returns the animefillerlist.com client.
+func (a *App) FillerList(client *httpx.Client, cache skip.Cache) *skip.FillerList {
+	return &skip.FillerList{Client: client, Cache: cache}
+}
+
+// aniSkipLookup adapts AniSkip to the session's SkipRanges hook.
+type aniSkipLookup struct{ *skip.AniSkip }
+
+func (l aniSkipLookup) ranges(ctx context.Context, media anilist.Media, episode float64, length time.Duration) ([]domain.SkipRange, error) {
+	if episode != math.Floor(episode) {
+		return nil, nil // AniSkip only knows whole episodes
+	}
+	return l.Ranges(ctx, media.IDMal, int(episode), length)
+}
+
 // trackWatched is the session's OnWatched hook.
 func (a *App) trackWatched(ctx context.Context, media anilist.Media, episode float64) (string, error) {
 	t, err := a.Tracker(ctx)
@@ -184,6 +202,7 @@ func (a *App) Session(ctx context.Context, onStatus func(session.Status)) (*sess
 		return nil, err
 	}
 	checker := &streamcheck.Checker{Client: client}
+	aniskip := aniSkipLookup{&skip.AniSkip{Client: client, Cache: st}}
 	cfg := a.Config
 	mpv := player.New(player.Options{MpvPath: cfg.Player.MpvPath, ExtraArgs: cfg.Player.ExtraArgs})
 	return session.New(session.Deps{
@@ -194,6 +213,13 @@ func (a *App) Session(ctx context.Context, onStatus func(session.Status)) (*sess
 			WatchedThreshold: cfg.General.WatchedThreshold,
 			ResumeRewind:     time.Duration(cfg.General.ResumeRewindSeconds) * time.Second,
 			CheckTimeout:     cfg.Providers.HealthCheckTimeout.Duration,
+			SkipActions: map[domain.SkipKind]string{
+				domain.SkipOpening: cfg.Skip.Opening,
+				domain.SkipEnding:  cfg.Skip.Ending,
+				domain.SkipRecap:   cfg.Skip.Recap,
+			},
+			SkipFillerEpisodes: cfg.Skip.FillerEpisodes,
+			SkipRecapEpisodes:  cfg.Skip.RecapEpisodes,
 		},
 		Providers: reg,
 		Resolver:  mapper,
@@ -201,10 +227,12 @@ func (a *App) Session(ctx context.Context, onStatus func(session.Status)) (*sess
 		Play: func(ctx context.Context, req player.Request) (session.Playback, error) {
 			return mpv.Play(ctx, req)
 		},
-		Proxy:     func() (session.Proxy, error) { return a.StreamProxy() },
-		Check:     checker.Check,
-		OnWatched: a.trackWatched,
-		OnStatus:  onStatus,
+		Proxy:        func() (session.Proxy, error) { return a.StreamProxy() },
+		Check:        checker.Check,
+		OnWatched:    a.trackWatched,
+		SkipRanges:   aniskip.ranges,
+		EpisodeKinds: a.FillerList(client, st).Kinds,
+		OnStatus:     onStatus,
 	}), nil
 }
 

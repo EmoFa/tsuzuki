@@ -8,6 +8,7 @@ import (
 	"github.com/EmoFa/anitui/internal/config"
 	"github.com/EmoFa/anitui/internal/domain"
 	"github.com/EmoFa/anitui/internal/session"
+	"github.com/EmoFa/anitui/internal/skip"
 	"github.com/EmoFa/anitui/internal/store"
 )
 
@@ -35,6 +36,8 @@ type Services interface {
 	Login(ctx context.Context) (string, error)
 	// Sync sends pending list changes and fetches the AniList list.
 	Sync(ctx context.Context) (string, error)
+	// EpisodeKinds classifies episodes (canon, filler, ...); nil when unknown.
+	EpisodeKinds(ctx context.Context, media anilist.Media) (map[int]skip.EpisodeKind, error)
 }
 
 // Account describes the AniList login.

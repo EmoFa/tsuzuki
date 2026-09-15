@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/EmoFa/anitui/internal/domain"
 	"github.com/EmoFa/anitui/internal/hls"
@@ -95,6 +96,10 @@ func TestStreamsDetails(t *testing.T) {
 	}
 	if len(s.Subtitles) != 1 || !strings.HasSuffix(s.Subtitles[0].URL, "sub_en.ass") {
 		t.Errorf("sub subtitles = %+v", s.Subtitles)
+	}
+	if len(s.Skips) != 2 || s.Skips[0] != (domain.SkipRange{Kind: domain.SkipOpening, Start: 117033 * time.Millisecond, End: 206997 * time.Millisecond}) ||
+		s.Skips[1].Kind != domain.SkipEnding || s.Skips[1].End != 1430094*time.Millisecond {
+		t.Errorf("skips = %+v", s.Skips)
 	}
 
 	dub, err := p.Streams(ctx, "73b5b", domain.Episode{ID: "1", Number: 1}, domain.Dub)

@@ -244,8 +244,10 @@ var (
 	seasonWords   = map[string]string{"first": "1", "second": "2", "third": "3", "fourth": "4", "fifth": "5"}
 )
 
-// normalize lowercases, drops punctuation and apostrophes, and writes season
-// numbers one way ("2nd Season" and "Season 2" both become "season 2").
+// NormalizeTitle lowercases, drops punctuation and apostrophes, and writes
+// season numbers one way ("2nd Season" and "Season 2" both become "season 2").
+func NormalizeTitle(s string) string { return normalize(s) }
+
 func normalize(s string) string {
 	s = strings.ToLower(s)
 	s = strings.NewReplacer("’", "", "'", "", "&", " and ").Replace(s)

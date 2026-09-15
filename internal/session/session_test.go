@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/EmoFa/anitui/internal/domain"
 	"github.com/EmoFa/anitui/internal/player"
 	"github.com/EmoFa/anitui/internal/provider"
+	"github.com/EmoFa/anitui/internal/skip"
 	"github.com/EmoFa/anitui/internal/store"
 )
 
@@ -22,6 +24,8 @@ type fakeProvider struct {
 	name       string
 	eps        int
 	streamsErr error
+	skips      []domain.SkipRange
+	recaps     map[int]bool
 }
 
 func (f *fakeProvider) Name() string { return f.name }
@@ -31,7 +35,7 @@ func (f *fakeProvider) Search(context.Context, string, domain.Mode) ([]domain.Sh
 func (f *fakeProvider) Episodes(context.Context, string, domain.Mode) ([]domain.Episode, error) {
 	var out []domain.Episode
 	for i := 1; i <= f.eps; i++ {
-		out = append(out, domain.Episode{ID: f.name + "-ep", Number: float64(i)})
+		out = append(out, domain.Episode{ID: f.name + "-ep", Number: float64(i), Recap: f.recaps[i]})
 	}
 	return out, nil
 }
@@ -40,8 +44,8 @@ func (f *fakeProvider) Streams(_ context.Context, show string, ep domain.Episode
 		return nil, f.streamsErr
 	}
 	return []domain.Stream{
-		{URL: "https://" + f.name + "/720.m3u8", Height: 720, Audio: mode},
-		{URL: "https://" + f.name + "/1080.m3u8", Height: 1080, Audio: mode},
+		{URL: "https://" + f.name + "/720.m3u8", Height: 720, Audio: mode, Skips: f.skips},
+		{URL: "https://" + f.name + "/1080.m3u8", Height: 1080, Audio: mode, Skips: f.skips},
 	}, nil
 }
 
@@ -60,6 +64,7 @@ type script struct {
 type fakePlayback struct {
 	events chan player.Event
 	final  player.State
+	h      *harness
 }
 
 func (f *fakePlayback) Events() <-chan player.Event { return f.events }
@@ -67,12 +72,30 @@ func (f *fakePlayback) State() player.State         { return f.final }
 func (f *fakePlayback) Wait() error                 { return nil }
 func (f *fakePlayback) Close() error                { return nil }
 
+func (f *fakePlayback) Seek(_ context.Context, pos time.Duration) error {
+	f.h.mu.Lock()
+	defer f.h.mu.Unlock()
+	f.h.seeks = append(f.h.seeks, pos)
+	return nil
+}
+
+func (f *fakePlayback) ShowText(_ context.Context, text string, _ time.Duration) error {
+	f.h.mu.Lock()
+	defer f.h.mu.Unlock()
+	f.h.osd = append(f.h.osd, text)
+	return nil
+}
+
+func (f *fakePlayback) BindKey(context.Context, string, string) error { return nil }
+
 type harness struct {
 	sess     *Session
 	store    *store.Store
 	mu       sync.Mutex
 	requests []player.Request
 	statuses []Status
+	seeks    []time.Duration
+	osd      []string
 }
 
 func newHarness(t *testing.T, providers []provider.Provider, scripts ...script) *harness {
@@ -108,7 +131,7 @@ func newHarness(t *testing.T, providers []provider.Provider, scripts ...script) 
 				ch <- e
 			}
 			close(ch)
-			return &fakePlayback{events: ch, final: sc.final}, nil
+			return &fakePlayback{events: ch, final: sc.final, h: h}, nil
 		},
 		Proxy: func() (Proxy, error) { return nil, errors.New("no proxy in tests") },
 		OnStatus: func(s Status) {
@@ -450,5 +473,144 @@ func TestNextToWatchUsesListProgress(t *testing.T) {
 	h.store.SaveProgress(ctx, store.Progress{MediaID: media.ID, Episode: 8, Position: time.Minute, Duration: 24 * time.Minute, Provider: "x", Mode: "sub"})
 	if next, _ := NextToWatch(ctx, h.store, media.ID); next != 8 {
 		t.Fatalf("unfinished local episode 8: next = %v", next)
+	}
+}
+
+func TestSkipsFromStreamAndAniSkip(t *testing.T) {
+	// The fake provider's streams carry no skip ranges, so they come from the
+	// SkipRanges lookup (AniSkip), which needs the duration first.
+	p := &fakeProvider{name: "senshi", eps: 3}
+	h := newHarness(t, []provider.Provider{p}, script{
+		events: []player.Event{
+			{Kind: player.EventDuration, Duration: 24 * time.Minute},
+			{Kind: player.EventPosition, Position: 10 * time.Second, Duration: 24 * time.Minute},
+			{Kind: player.EventPosition, Position: 118 * time.Second, Duration: 24 * time.Minute},
+			{Kind: player.EventPosition, Position: 1345 * time.Second, Duration: 24 * time.Minute},
+			{Kind: player.EventMessage, Args: []string{"anitui-skip"}},
+			{Kind: player.EventEndFile, Reason: "quit"},
+		},
+		final: player.State{Position: 1350 * time.Second, Duration: 24 * time.Minute, EndReason: "quit"},
+	})
+	h.sess.Settings.SkipActions = map[domain.SkipKind]string{domain.SkipOpening: "auto", domain.SkipEnding: "prompt"}
+	lookedUp := make(chan struct{})
+	h.sess.SkipRanges = func(_ context.Context, _ anilist.Media, ep float64, length time.Duration) ([]domain.SkipRange, error) {
+		defer close(lookedUp)
+		if ep != 1 || length != 24*time.Minute {
+			t.Errorf("lookup ep=%v length=%v", ep, length)
+		}
+		return []domain.SkipRange{
+			{Kind: domain.SkipOpening, Start: 117 * time.Second, End: 207 * time.Second},
+			{Kind: domain.SkipEnding, Start: 1340 * time.Second, End: 1430 * time.Second},
+		}, nil
+	}
+	// Hold events until the lookup has delivered, as a real player would keep
+	// sending positions while it runs.
+	orig := h.sess.Play
+	h.sess.Play = func(ctx context.Context, req player.Request) (Playback, error) {
+		pb, err := orig(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		fp := pb.(*fakePlayback)
+		src := fp.events
+		gated := make(chan player.Event)
+		go func() {
+			defer close(gated)
+			first := true
+			for e := range src {
+				gated <- e
+				if first {
+					first = false
+					<-lookedUp
+					time.Sleep(20 * time.Millisecond) // let the ranges reach the loop
+				}
+			}
+		}()
+		fp.events = gated
+		return fp, nil
+	}
+
+	if err := h.sess.Watch(context.Background(), Request{Media: media, Episode: 1, Mode: domain.Sub}); err != nil {
+		t.Fatal(err)
+	}
+	// Opening auto-skipped at 1:58; ending prompted at 22:25, then skipped on request.
+	if len(h.seeks) != 2 || h.seeks[0] != 207*time.Second || h.seeks[1] != 1430*time.Second {
+		t.Fatalf("seeks = %v", h.seeks)
+	}
+	if strings.Join(h.osd, "|") != "Skipped opening|Ending · press TAB to skip|Skipped ending" {
+		t.Fatalf("osd = %q", h.osd)
+	}
+	if sk := h.kinds(StatusSkipped); len(sk) != 2 || sk[0].Reason != "opening" {
+		t.Fatalf("skipped statuses = %+v", sk)
+	}
+}
+
+func TestStreamSkipsAvoidLookup(t *testing.T) {
+	p := &fakeProvider{name: "senshi", eps: 3}
+	h := newHarness(t, []provider.Provider{p}, played(time.Minute, 24*time.Minute, "quit"))
+	h.sess.Settings.SkipActions = map[domain.SkipKind]string{domain.SkipOpening: "auto"}
+	h.sess.SkipRanges = func(context.Context, anilist.Media, float64, time.Duration) ([]domain.SkipRange, error) {
+		t.Error("looked up skips although the stream had them")
+		return nil, nil
+	}
+	p.skips = []domain.SkipRange{{Kind: domain.SkipOpening, Start: 30 * time.Second, End: 90 * time.Second}}
+	if err := h.sess.Watch(context.Background(), Request{Media: media, Episode: 1, Mode: domain.Sub}); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.seeks) != 1 || h.seeks[0] != 90*time.Second {
+		t.Fatalf("seeks = %v (position 1:00 is inside the provider's opening)", h.seeks)
+	}
+}
+
+func TestAutoplaySkipsFillerAndRecapEpisodes(t *testing.T) {
+	// Episodes 2-3 are filler (animefillerlist), 4 is a recap (provider flag), 5 filler.
+	p := &fakeProvider{name: "senshi", eps: 7, recaps: map[int]bool{4: true}}
+	h := newHarness(t, []provider.Provider{p},
+		played(24*time.Minute, 24*time.Minute, "eof"), // episode 1
+		played(time.Minute, 24*time.Minute, "quit"),   // episode 6
+	)
+	h.sess.Settings.SkipFillerEpisodes, h.sess.Settings.SkipRecapEpisodes = true, true
+	h.sess.EpisodeKinds = func(context.Context, anilist.Media) (map[int]skip.EpisodeKind, error) {
+		return map[int]skip.EpisodeKind{1: skip.Canon, 2: skip.Filler, 3: skip.Filler, 5: skip.Filler, 6: skip.Mixed}, nil
+	}
+	if err := h.sess.Watch(context.Background(), Request{Media: media, Episode: 1, Mode: domain.Sub}); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.requests) != 2 || !strings.Contains(h.requests[1].Title, "Episode 6") {
+		t.Fatalf("requests = %+v", h.requests)
+	}
+	var skipped []string
+	for _, st := range h.kinds(StatusEpisodeSkipped) {
+		skipped = append(skipped, fmt.Sprintf("%v-%v:%s", st.Episode, st.Through, st.Reason))
+	}
+	if strings.Join(skipped, ",") != "2-3:filler,4-4:recap,5-5:filler" {
+		t.Fatalf("skipped = %v", skipped)
+	}
+}
+
+func TestExplicitFillerEpisodePlaysButContinueSkipsIt(t *testing.T) {
+	p := &fakeProvider{name: "senshi", eps: 4}
+	kinds := func(context.Context, anilist.Media) (map[int]skip.EpisodeKind, error) {
+		return map[int]skip.EpisodeKind{2: skip.Filler}, nil
+	}
+
+	h := newHarness(t, []provider.Provider{p}, played(time.Minute, 24*time.Minute, "quit"))
+	h.sess.Settings.SkipFillerEpisodes, h.sess.EpisodeKinds = true, kinds
+	if err := h.sess.Watch(context.Background(), Request{Media: media, Episode: 2, Mode: domain.Sub}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(h.requests[0].Title, "Episode 2") {
+		t.Fatalf("explicit filler episode not played: %+v", h.requests)
+	}
+
+	h = newHarness(t, []provider.Provider{p}, played(time.Minute, 24*time.Minute, "quit"))
+	h.sess.Settings.SkipFillerEpisodes, h.sess.EpisodeKinds = true, kinds
+	ctx := context.Background()
+	h.store.SaveProgress(ctx, store.Progress{MediaID: media.ID, Episode: 1, Completed: true, Duration: 24 * time.Minute, Provider: "senshi", Mode: "sub"})
+	if err := h.sess.Watch(ctx, Request{Media: media, Mode: domain.Sub}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(h.requests[0].Title, "Episode 3") {
+		t.Fatalf("continue landed on filler: %+v", h.requests)
 	}
 }

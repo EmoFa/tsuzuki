@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"math"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/EmoFa/anitui/internal/domain"
 	"github.com/EmoFa/anitui/internal/player"
 	"github.com/EmoFa/anitui/internal/provider"
+	"github.com/EmoFa/anitui/internal/skip"
 	"github.com/EmoFa/anitui/internal/store"
 )
 
@@ -47,6 +50,12 @@ type Settings struct {
 	WatchedThreshold float64 // fraction of duration that counts as watched
 	ResumeRewind     time.Duration
 	CheckTimeout     time.Duration // per stream health check; default 10s
+	// SkipActions is "auto", "prompt" or "off" for each skippable kind.
+	SkipActions map[domain.SkipKind]string
+	// Skip filler/recap episodes when choosing the next episode automatically
+	// (autoplay and continue). Episodes picked explicitly always play.
+	SkipFillerEpisodes bool
+	SkipRecapEpisodes  bool
 }
 
 // Resolver maps AniList entries to provider shows (mapping.Mapper).
@@ -67,6 +76,9 @@ type Playback interface {
 	State() player.State
 	Wait() error
 	Close() error
+	Seek(ctx context.Context, pos time.Duration) error
+	ShowText(ctx context.Context, text string, d time.Duration) error
+	BindKey(ctx context.Context, key, message string) error
 }
 
 // Proxy is the part of *streamproxy.Proxy the session uses.
@@ -87,6 +99,12 @@ type Deps struct {
 	// OnWatched records a watched episode on the user's list (the tracker),
 	// returning a note for the UI. Nil disables tracking.
 	OnWatched func(ctx context.Context, media anilist.Media, episode float64) (string, error)
+	// EpisodeKinds classifies episodes (animefillerlist). Nil relies on
+	// providers' own filler flags only.
+	EpisodeKinds func(ctx context.Context, media anilist.Media) (map[int]skip.EpisodeKind, error)
+	// SkipRanges looks up skip ranges when the stream has none (AniSkip).
+	// length is the episode duration. Nil disables the lookup.
+	SkipRanges func(ctx context.Context, media anilist.Media, episode float64, length time.Duration) ([]domain.SkipRange, error)
 	// OnStatus receives updates for the UI. May be nil.
 	OnStatus func(Status)
 }
@@ -100,6 +118,8 @@ const (
 	StatusProgress                             // Position/Duration updated
 	StatusWatched                              // Episode crossed the watched threshold
 	StatusTracked                              // the list was updated for Episode; Reason is a note, Err a failure
+	StatusSkipped                              // a range was skipped; Reason is its kind ("opening", ...)
+	StatusEpisodeSkipped                       // Episode was passed over; Reason is "filler" or "recap"
 	StatusStopped                              // playback ended; Reason set
 	StatusNoNextEpisode                        // autoplay found nothing after Episode
 )
@@ -113,7 +133,8 @@ type Status struct {
 	Start    time.Duration
 	Position time.Duration
 	Duration time.Duration
-	Reason   string // StatusStopped: mpv end reason ("eof", "quit", "error", ...)
+	Reason   string  // StatusStopped: mpv end reason ("eof", "quit", "error", ...)
+	Through  float64 // StatusEpisodeSkipped: last episode of the skipped run (Episode is the first)
 	Err      error
 }
 
@@ -155,22 +176,34 @@ func (s *Session) Watch(ctx context.Context, req Request) error {
 	if prefer == "" {
 		prefer = s.lastProvider(ctx, req.Media.ID)
 	}
-	skip := slices.Clone(req.SkipProviders)
+	skipProviders := slices.Clone(req.SkipProviders)
 	// failures remembers why providers were abandoned mid-episode, so the final
 	// error explains them.
 	var failures []error
+	// auto: the episode was chosen for the user (continue/autoplay), so filler
+	// and recap episodes may be passed over.
+	auto := req.Episode == 0
+	kinds := s.episodeKinds(ctx, req.Media)
 
 	for {
-		res, err := s.resolve(ctx, req.Media, ep, req.Mode, prefer, skip)
+		res, err := s.resolve(ctx, req.Media, ep, req.Mode, prefer, skipProviders)
 		if err != nil {
 			return errors.Join(append([]error{err}, failures...)...)
+		}
+		if auto && s.passOver(res.episode, kinds) != "" {
+			next, ok := s.nextToPlay(ctx, req.Media, res.episodes, res.episode, kinds)
+			if !ok {
+				return nil
+			}
+			ep, prefer, skipProviders, failures = next.Number, res.provider, nil, nil
+			continue
 		}
 		state, err := s.play(ctx, req.Media, res, req.Mode)
 		if errors.Is(err, errPlaybackFailed) && ctx.Err() == nil {
 			slog.Info("playback failed; trying next provider", "provider", res.provider, "episode", ep, "err", err)
 			s.status(Status{Kind: StatusProviderFailed, Media: req.Media, Episode: ep, Provider: res.provider, Err: err})
 			failures = append(failures, err)
-			skip, prefer = append(skip, res.provider), ""
+			skipProviders, prefer = append(skipProviders, res.provider), ""
 			continue // same episode; play resumes from the saved position
 		}
 		if err != nil {
@@ -179,12 +212,74 @@ func (s *Session) Watch(ctx context.Context, req Request) error {
 		if ctx.Err() != nil || state.EndReason != "eof" || !s.Settings.AutoplayNext {
 			return nil
 		}
-		next, ok := nextEpisode(res.episodes, ep)
+		next, ok := s.nextToPlay(ctx, req.Media, res.episodes, res.episode, kinds)
 		if !ok {
-			s.status(Status{Kind: StatusNoNextEpisode, Media: req.Media, Episode: ep, Provider: res.provider})
 			return nil
 		}
-		ep, prefer, skip, failures = next.Number, res.provider, nil, nil
+		ep, prefer, skipProviders, failures, auto = next.Number, res.provider, nil, nil, true
+	}
+}
+
+// episodeKinds loads filler information when filler episodes are skipped.
+func (s *Session) episodeKinds(ctx context.Context, media anilist.Media) map[int]skip.EpisodeKind {
+	if !s.Settings.SkipFillerEpisodes || s.EpisodeKinds == nil {
+		return nil
+	}
+	kinds, err := s.EpisodeKinds(ctx, media)
+	if err != nil {
+		slog.Info("no filler information", "media", media.ID, "err", err)
+	}
+	return kinds
+}
+
+// passOver returns why an automatically chosen episode should be skipped, or "".
+func (s *Session) passOver(e domain.Episode, kinds map[int]skip.EpisodeKind) string {
+	switch {
+	case s.Settings.SkipRecapEpisodes && e.Recap:
+		return "recap"
+	case s.Settings.SkipFillerEpisodes && (e.Filler || (e.Number == math.Floor(e.Number) && kinds[int(e.Number)] == skip.Filler)):
+		return "filler"
+	}
+	return ""
+}
+
+// nextToPlay returns the first episode after cur that isn't passed over,
+// reporting each run of skipped episodes, or false when none is available.
+func (s *Session) nextToPlay(ctx context.Context, media anilist.Media, eps []domain.Episode, cur domain.Episode, kinds map[int]skip.EpisodeKind) (domain.Episode, bool) {
+	var run *Status
+	flush := func() {
+		if run != nil {
+			s.status(*run)
+			run = nil
+		}
+	}
+	pass := func(e domain.Episode, why string) {
+		if run != nil && run.Reason == why {
+			run.Through = e.Number
+			return
+		}
+		flush()
+		run = &Status{Kind: StatusEpisodeSkipped, Media: media, Episode: e.Number, Through: e.Number, Reason: why}
+	}
+
+	if why := s.passOver(cur, kinds); why != "" {
+		pass(cur, why)
+	}
+	number := cur.Number
+	for {
+		next, ok := nextEpisode(eps, number)
+		if !ok {
+			flush()
+			s.status(Status{Kind: StatusNoNextEpisode, Media: media, Episode: number})
+			return domain.Episode{}, false
+		}
+		why := s.passOver(next, kinds)
+		if why == "" {
+			flush()
+			return next, true
+		}
+		pass(next, why)
+		number = next.Number
 	}
 }
 
@@ -435,17 +530,62 @@ func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, m
 		lastSave = time.Now()
 	}
 
-	for e := range pb.Events() {
-		switch e.Kind {
-		case player.EventPosition:
-			u := base
-			u.Kind, u.Position, u.Duration = StatusProgress, e.Position, e.Duration
-			s.status(u)
-			if time.Since(lastSave) >= saveInterval {
-				record(pb.State(), false)
+	skipper := skip.NewSkipper(s.Settings.SkipActions)
+	skipper.SetRanges(res.stream.Skips)
+	if err := pb.BindKey(ctx, skipKey, skipMessage); err != nil {
+		slog.Debug("binding skip key", "err", err)
+	}
+	applySkip := func(d skip.Decision) {
+		switch {
+		case d.Seek > 0:
+			if err := pb.Seek(ctx, d.Seek); err != nil {
+				slog.Warn("skipping", "kind", d.Kind, "err", err)
+				return
 			}
-		case player.EventPause, player.EventSeek:
-			record(pb.State(), false)
+			pb.ShowText(ctx, "Skipped "+string(d.Kind), 2*time.Second)
+			sk := base
+			sk.Kind, sk.Reason = StatusSkipped, string(d.Kind)
+			s.status(sk)
+		case d.Prompt:
+			text := fmt.Sprintf("%s · press %s to skip", capitalize(string(d.Kind)), skipKey)
+			pb.ShowText(ctx, text, min(d.Until, 10*time.Second))
+		}
+	}
+
+	// Look up AniSkip once the episode length is known, unless the stream
+	// already brought its own ranges.
+	rangesCh := make(chan []domain.SkipRange, 1)
+	lookedUp := res.stream.Skips != nil || s.SkipRanges == nil
+	events := pb.Events()
+	for events != nil {
+		select {
+		case e, ok := <-events:
+			if !ok {
+				events = nil
+				continue
+			}
+			if !lookedUp && e.Duration > 0 {
+				lookedUp = true
+				go s.lookupSkips(ctx, media, res.episode.Number, e.Duration, rangesCh)
+			}
+			switch e.Kind {
+			case player.EventPosition:
+				u := base
+				u.Kind, u.Position, u.Duration = StatusProgress, e.Position, e.Duration
+				s.status(u)
+				applySkip(skipper.Position(e.Position))
+				if time.Since(lastSave) >= saveInterval {
+					record(pb.State(), false)
+				}
+			case player.EventPause, player.EventSeek:
+				record(pb.State(), false)
+			case player.EventMessage:
+				if len(e.Args) > 0 && e.Args[0] == skipMessage {
+					applySkip(skipper.Request(pb.State().Position))
+				}
+			}
+		case ranges := <-rangesCh:
+			skipper.SetRanges(ranges)
 		}
 	}
 	waitErr := pb.Wait()
@@ -465,6 +605,29 @@ func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, m
 			errPlaybackFailed, st.Position.Round(time.Second), st.Duration.Round(time.Second))
 	}
 	return st, nil
+}
+
+const (
+	skipKey     = "TAB"
+	skipMessage = "anitui-skip"
+)
+
+func (s *Session) lookupSkips(ctx context.Context, media anilist.Media, episode float64, length time.Duration, out chan<- []domain.SkipRange) {
+	ranges, err := s.SkipRanges(ctx, media, episode, length)
+	if err != nil {
+		slog.Info("no skip times", "media", media.ID, "episode", episode, "err", err)
+		return
+	}
+	if len(ranges) > 0 {
+		out <- ranges
+	}
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // prematureEnd reports a stream that hit end-of-file well before its duration,
@@ -515,4 +678,13 @@ func PlayerRequest(s domain.Stream, proxy Proxy) (player.Request, error) {
 		req.Subtitles = append(req.Subtitles, subURL(sub.URL))
 	}
 	return req, nil
+}
+
+// EpisodeRange describes episodes first through last: "episode 4" or "episodes 57–71".
+func EpisodeRange(first, last float64) string {
+	f := strconv.FormatFloat(first, 'f', -1, 64)
+	if last <= first {
+		return "episode " + f
+	}
+	return "episodes " + f + "–" + strconv.FormatFloat(last, 'f', -1, 64)
 }

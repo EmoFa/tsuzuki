@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/EmoFa/anitui/internal/browser"
 	"github.com/EmoFa/anitui/internal/domain"
@@ -284,6 +285,13 @@ func (p *Provider) resolveServer(ctx context.Context, srv server, mode domain.Mo
 		subs = append(subs, domain.Subtitle{URL: t.File, Lang: subtitleLang(t.Label), Label: t.Label})
 	}
 	sortSubtitles(subs)
+	var skips []domain.SkipRange
+	for kind, r := range map[domain.SkipKind]extractor.MegaplaySkip{domain.SkipOpening: mp.Intro, domain.SkipEnding: mp.Outro} {
+		if r.End > r.Start {
+			skips = append(skips, domain.SkipRange{Kind: kind, Start: time.Duration(r.Start) * time.Second, End: time.Duration(r.End) * time.Second})
+		}
+	}
+	slices.SortFunc(skips, func(a, b domain.SkipRange) int { return int(a.Start - b.Start) })
 	streams := make([]domain.Stream, 0, len(mp.Variants))
 	for _, v := range mp.Variants {
 		label := srv.name
@@ -298,6 +306,7 @@ func (p *Provider) resolveServer(ctx context.Context, srv server, mode domain.Mo
 			Label:     label,
 			Headers:   headers,
 			Subtitles: subs,
+			Skips:     skips,
 			// Segments are MPEG-TS hidden behind fake PNG headers on image CDNs.
 			NeedsProxy:      true,
 			WrappedSegments: true,

@@ -8,6 +8,7 @@ import (
 	"github.com/EmoFa/anitui/internal/anilist"
 	"github.com/EmoFa/anitui/internal/domain"
 	"github.com/EmoFa/anitui/internal/session"
+	"github.com/EmoFa/anitui/internal/skip"
 	"github.com/EmoFa/anitui/internal/store"
 	"github.com/EmoFa/anitui/internal/tui"
 )
@@ -146,6 +147,14 @@ func (s *tuiServices) Login(ctx context.Context) (string, error) {
 
 func (s *tuiServices) Sync(ctx context.Context) (string, error) {
 	return syncList(ctx, s.app)
+}
+
+func (s *tuiServices) EpisodeKinds(ctx context.Context, media anilist.Media) (map[int]skip.EpisodeKind, error) {
+	client, err := s.app.HTTP(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.app.FillerList(client, s.store).Kinds(ctx, media)
 }
 
 func (s *tuiServices) Settings() tui.Settings {

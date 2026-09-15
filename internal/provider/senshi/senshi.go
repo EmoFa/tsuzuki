@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/EmoFa/anitui/internal/domain"
 	"github.com/EmoFa/anitui/internal/hls"
@@ -186,8 +187,24 @@ func (p *Provider) Episodes(ctx context.Context, showID string, mode domain.Mode
 }
 
 type embed struct {
-	SourceID int    `json:"remote_source_id"`
-	Status   string `json:"status"` // "Dub", "HardSub", ...
+	SourceID   int    `json:"remote_source_id"`
+	Status     string `json:"status"` // "Dub", "HardSub", ...
+	IntroStart *int64 `json:"intro_start_ms"`
+	IntroEnd   *int64 `json:"intro_end_ms"`
+	OutroStart *int64 `json:"outro_start_ms"`
+	OutroEnd   *int64 `json:"outro_end_ms"`
+}
+
+func (e embed) skips() []domain.SkipRange {
+	var out []domain.SkipRange
+	add := func(kind domain.SkipKind, start, end *int64) {
+		if start != nil && end != nil && *end > *start {
+			out = append(out, domain.SkipRange{Kind: kind, Start: time.Duration(*start) * time.Millisecond, End: time.Duration(*end) * time.Millisecond})
+		}
+	}
+	add(domain.SkipOpening, e.IntroStart, e.IntroEnd)
+	add(domain.SkipEnding, e.OutroStart, e.OutroEnd)
+	return out
 }
 
 type sourceResponse struct {
@@ -211,21 +228,22 @@ func (p *Provider) Streams(ctx context.Context, showID string, ep domain.Episode
 	if err := p.client.GetJSON(ctx, fmt.Sprintf("%s/episode-embeds/%d/%s", p.base, d.ID, ep.ID), p.headers(), &embeds); err != nil {
 		return nil, fmt.Errorf("senshi embeds: %w", err)
 	}
-	var sourceIDs []int
+	var chosen []embed
 	for _, e := range embeds {
 		isDub := strings.EqualFold(e.Status, "dub")
-		if isDub == (mode == domain.Dub) && e.SourceID != 0 && !slices.Contains(sourceIDs, e.SourceID) {
-			sourceIDs = append(sourceIDs, e.SourceID)
+		if isDub == (mode == domain.Dub) && e.SourceID != 0 &&
+			!slices.ContainsFunc(chosen, func(c embed) bool { return c.SourceID == e.SourceID }) {
+			chosen = append(chosen, e)
 		}
 	}
-	if len(sourceIDs) == 0 {
+	if len(chosen) == 0 {
 		return nil, fmt.Errorf("senshi episode %s (%s): %w", ep.Label(), mode, provider.ErrNoStreams)
 	}
 
 	var streams []domain.Stream
 	var errs []error
-	for _, id := range sourceIDs {
-		s, err := p.resolveSource(ctx, id, mode)
+	for _, e := range chosen {
+		s, err := p.resolveSource(ctx, e.SourceID, mode, e.skips())
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -239,7 +257,7 @@ func (p *Provider) Streams(ctx context.Context, showID string, ep domain.Episode
 }
 
 // resolveSource returns one stream per video variant of a source's master.
-func (p *Provider) resolveSource(ctx context.Context, sourceID int, mode domain.Mode) ([]domain.Stream, error) {
+func (p *Provider) resolveSource(ctx context.Context, sourceID int, mode domain.Mode, skips []domain.SkipRange) ([]domain.Stream, error) {
 	var resp []sourceResponse
 	if err := p.client.GetJSON(ctx, fmt.Sprintf("%s?id=%d", p.sources, sourceID), p.headers(), &resp); err != nil {
 		return nil, err
@@ -265,6 +283,7 @@ func (p *Provider) resolveSource(ctx context.Context, sourceID int, mode domain.
 		NeedsProxy: true, // playlists are encrypted
 		Playlist:   &domain.PlaylistCodec{Prefix: playlistPrefix, Decode: decodePlaylist},
 		Subtitles:  subtitles(src, mode),
+		Skips:      skips,
 	}
 	if src.Source.Audio == "both" {
 		base.AudioLang = "ja"

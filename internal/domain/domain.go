@@ -82,6 +82,23 @@ type Stream struct {
 	// header, which players can't demux. The proxy strips the header.
 	// Requires NeedsProxy.
 	WrappedSegments bool `json:"wrapped_segments,omitempty"`
+	// Skips are opening/ending/recap ranges the provider knows for this stream.
+	Skips []SkipRange `json:"skips,omitempty"`
+}
+
+type SkipKind string
+
+const (
+	SkipOpening SkipKind = "opening"
+	SkipEnding  SkipKind = "ending"
+	SkipRecap   SkipKind = "recap"
+)
+
+// SkipRange is a part of an episode that can be skipped.
+type SkipRange struct {
+	Kind  SkipKind      `json:"kind"`
+	Start time.Duration `json:"start"`
+	End   time.Duration `json:"end"`
 }
 
 // PlaylistCodec recognises and decodes playlists a provider has obfuscated.

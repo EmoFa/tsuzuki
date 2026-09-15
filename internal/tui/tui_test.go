@@ -16,6 +16,7 @@ import (
 	"github.com/EmoFa/anitui/internal/config"
 	"github.com/EmoFa/anitui/internal/domain"
 	"github.com/EmoFa/anitui/internal/session"
+	"github.com/EmoFa/anitui/internal/skip"
 	"github.com/EmoFa/anitui/internal/store"
 )
 
@@ -109,6 +110,10 @@ func (f *fakeServices) SetListStatus(_ context.Context, id int, status string) (
 }
 
 func (f *fakeServices) Account() Account { return Account{Backend: "anilist"} }
+
+func (f *fakeServices) EpisodeKinds(context.Context, anilist.Media) (map[int]skip.EpisodeKind, error) {
+	return map[int]skip.EpisodeKind{5: skip.Filler}, nil
+}
 func (f *fakeServices) Login(context.Context) (string, error) {
 	return "", errors.New("unused")
 }
@@ -271,8 +276,11 @@ func TestDetailsMarkers(t *testing.T) {
 	if d.numbers[d.list.cursor] != 3 {
 		t.Fatalf("cursor on episode %v, want 3", d.numbers[d.list.cursor])
 	}
+	for _, msg := range runBatch(d.loadKinds()) {
+		d.Update(msg)
+	}
 	view := d.View(100, 30)
-	for _, want := range []string{"✓", "▶", "next", "c continues with episode 3", "Following the exam,", "trio heads north & beyond."} {
+	for _, want := range []string{"filler", "✓", "▶", "next", "c continues with episode 3", "Following the exam,", "trio heads north & beyond."} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q:\n%s", want, view)
 		}

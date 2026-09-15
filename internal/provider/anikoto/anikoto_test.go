@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/EmoFa/anitui/internal/browser"
 	"github.com/EmoFa/anitui/internal/domain"
@@ -152,6 +154,13 @@ func TestStreamsAndIDs(t *testing.T) {
 	}
 	if len(best.Subtitles) != 1 || best.Subtitles[0].Lang != "en" {
 		t.Errorf("subtitles = %+v", best.Subtitles)
+	}
+	wantSkips := []domain.SkipRange{
+		{Kind: domain.SkipOpening, Start: 116 * time.Second, End: 207 * time.Second},
+		{Kind: domain.SkipEnding, Start: 1338 * time.Second, End: 1470 * time.Second},
+	}
+	if !reflect.DeepEqual(best.Skips, wantSkips) {
+		t.Errorf("skips = %+v", best.Skips)
 	}
 }
 

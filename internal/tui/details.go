@@ -13,6 +13,7 @@ import (
 	"github.com/EmoFa/anitui/internal/anilist"
 	"github.com/EmoFa/anitui/internal/domain"
 	"github.com/EmoFa/anitui/internal/session"
+	"github.com/EmoFa/anitui/internal/skip"
 	"github.com/EmoFa/anitui/internal/store"
 )
 
@@ -23,6 +24,10 @@ type detailsProgressMsg struct {
 
 type detailsEntryMsg struct {
 	entry *store.ListEntry
+}
+
+type detailsKindsMsg struct {
+	kinds map[int]skip.EpisodeKind
 }
 
 type detailsStatusMsg struct {
@@ -55,6 +60,7 @@ type detailsScreen struct {
 
 	entry         *store.ListEntry
 	pickingStatus bool
+	kinds         map[int]skip.EpisodeKind
 }
 
 func newDetails(ctx context.Context, svc Services, media anilist.Media, mode domain.Mode) *detailsScreen {
@@ -66,7 +72,7 @@ func newDetails(ctx context.Context, svc Services, media anilist.Media, mode dom
 func (d *detailsScreen) Title() string { return truncate(d.media.DisplayTitle(), 40) }
 
 func (d *detailsScreen) Init() tea.Cmd {
-	cmds := []tea.Cmd{d.loadProgress(), d.loadEntry()}
+	cmds := []tea.Cmd{d.loadProgress(), d.loadEntry(), d.loadKinds()}
 	if d.media.AiredEpisodes() == 0 {
 		cmds = append(cmds, d.loadEpisodes())
 	}
@@ -74,6 +80,17 @@ func (d *detailsScreen) Init() tea.Cmd {
 }
 
 func (d *detailsScreen) Refresh() tea.Cmd { return tea.Batch(d.loadProgress(), d.loadEntry()) }
+
+func (d *detailsScreen) loadKinds() tea.Cmd {
+	ctx, svc, media := d.ctx, d.svc, d.media
+	return func() tea.Msg {
+		kinds, err := svc.EpisodeKinds(ctx, media)
+		if err != nil {
+			return nil
+		}
+		return detailsKindsMsg{kinds}
+	}
+}
 
 func (d *detailsScreen) loadEntry() tea.Cmd {
 	ctx, svc, id := d.ctx, d.svc, d.media.ID
@@ -142,6 +159,9 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 
 	case detailsEntryMsg:
 		d.entry = msg.entry
+
+	case detailsKindsMsg:
+		d.kinds = msg.kinds
 
 	case detailsStatusMsg:
 		if msg.err != nil {
@@ -322,8 +342,14 @@ func (d *detailsScreen) episodeRow(i int, next float64, width int) string {
 	} else {
 		mark = " "
 	}
-	if e, ok := d.provEpisodes[n]; ok && e.Filler {
-		detail = strings.TrimSpace(detail + " filler")
+	e, fromProvider := d.provEpisodes[n]
+	switch kind := d.kinds[int(n)]; {
+	case kind == skip.Filler || (fromProvider && e.Filler):
+		detail = strings.TrimSpace(detail + " " + styleWarn.Render("filler"))
+	case kind == skip.Mixed:
+		detail = strings.TrimSpace(detail + " mixed canon/filler")
+	case fromProvider && e.Recap:
+		detail = strings.TrimSpace(detail + " " + styleWarn.Render("recap"))
 	}
 
 	cursor, nameStyle := "  ", lipgloss.NewStyle()
