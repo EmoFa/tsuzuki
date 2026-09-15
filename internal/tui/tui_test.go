@@ -1,0 +1,284 @@
+package tui
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/exp/teatest/v2"
+
+	"github.com/EmoFa/anitui/internal/anilist"
+	"github.com/EmoFa/anitui/internal/config"
+	"github.com/EmoFa/anitui/internal/domain"
+	"github.com/EmoFa/anitui/internal/session"
+	"github.com/EmoFa/anitui/internal/store"
+)
+
+var frieren2 = anilist.Media{
+	ID: 182255, Episodes: 10, Status: "FINISHED", Format: "TV", Year: 2026, AverageScore: 88,
+	Title:       anilist.Title{English: "Frieren: Beyond Journey’s End Season 2", Romaji: "Sousou no Frieren 2nd Season"},
+	Description: "Following the exam,<br><br>the <i>trio</i> heads north &amp; beyond.",
+	Genres:      []string{"Adventure", "Fantasy"},
+}
+
+type fakeServices struct {
+	mu       sync.Mutex
+	progress []store.Progress
+	watches  []session.Request
+}
+
+func (f *fakeServices) Search(context.Context, string) ([]anilist.Media, error) {
+	return []anilist.Media{{ID: 1, Title: anilist.Title{English: "Frieren: Beyond Journey’s End"}, Episodes: 28}, frieren2}, nil
+}
+
+func (f *fakeServices) Media(_ context.Context, id int) (anilist.Media, error) {
+	if id == frieren2.ID {
+		return frieren2, nil
+	}
+	return anilist.Media{}, errors.New("not found")
+}
+
+func (f *fakeServices) RecentShows(context.Context, int) ([]store.Progress, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.progress) == 0 {
+		return nil, nil
+	}
+	return f.progress[len(f.progress)-1:], nil
+}
+
+func (f *fakeServices) ShowProgress(context.Context, int) ([]store.Progress, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]store.Progress(nil), f.progress...), nil
+}
+
+func (f *fakeServices) ProviderEpisodes(context.Context, anilist.Media, domain.Mode) ([]domain.Episode, error) {
+	return nil, errors.New("unused")
+}
+
+// Watch reports a stream starting, then plays until cancelled and records progress.
+func (f *fakeServices) Watch(ctx context.Context, req session.Request, onStatus func(session.Status)) error {
+	f.mu.Lock()
+	f.watches = append(f.watches, req)
+	f.mu.Unlock()
+	st := session.Status{Media: req.Media, Episode: req.Episode, Provider: "fakeprov", Stream: domain.Stream{Label: "1080p"}}
+	st.Kind = session.StatusResolving
+	onStatus(st)
+	st.Kind = session.StatusPlaying
+	onStatus(st)
+	st.Kind, st.Position, st.Duration = session.StatusProgress, 90*time.Second, 24*time.Minute
+	onStatus(st)
+	<-ctx.Done()
+	f.mu.Lock()
+	f.progress = append(f.progress, store.Progress{MediaID: req.Media.ID, Episode: req.Episode,
+		Position: 90 * time.Second, Duration: 24 * time.Minute, Mode: string(req.Mode), UpdatedAt: time.Now()})
+	f.mu.Unlock()
+	return ctx.Err()
+}
+
+func (f *fakeServices) Settings() Settings {
+	return Settings{Config: config.Default(), ConfigPath: "/cfg/config.toml", DataDir: "/data", CacheDir: "/cache"}
+}
+
+func press(s string) tea.KeyPressMsg {
+	switch s {
+	case "enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "down":
+		return tea.KeyPressMsg{Code: tea.KeyDown}
+	case "esc":
+		return tea.KeyPressMsg{Code: tea.KeyEscape}
+	case "ctrl+c":
+		return tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
+	}
+	r := []rune(s)[0]
+	return tea.KeyPressMsg{Code: r, Text: s}
+}
+
+func waitFor(t *testing.T, tm *teatest.TestModel, want string) {
+	t.Helper()
+	teatest.WaitFor(t, tm.Output(), func(b []byte) bool { return bytes.Contains(b, []byte(want)) },
+		teatest.WithDuration(5*time.Second), teatest.WithCheckInterval(20*time.Millisecond))
+}
+
+// TestSearchDetailsPlayStop drives the real program loop through a full watch.
+func TestSearchDetailsPlayStop(t *testing.T) {
+	svc := &fakeServices{}
+	m := New(context.Background(), svc)
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(100, 30))
+	m.send = tm.Send
+
+	waitFor(t, tm, "Nothing watched yet")
+	tm.Send(press("/"))
+	tm.Type("frieren")
+	waitFor(t, tm, "Season 2")
+
+	tm.Send(press("down"))
+	tm.Send(press("down"))
+	tm.Send(press("enter"))
+	waitFor(t, tm, "Episodes (sub)")
+
+	tm.Send(press("enter"))
+	waitFor(t, tm, "Playing from fakeprov")
+
+	tm.Send(press("x"))
+	waitFor(t, tm, "c continues with episode 1")
+
+	tm.Send(press("ctrl+c"))
+	final := tm.FinalModel(t, teatest.WithFinalTimeout(5*time.Second)).(*Model)
+	if _, ok := final.top().(*detailsScreen); !ok {
+		t.Errorf("top screen = %T, want details", final.top())
+	}
+	if len(svc.watches) != 1 || svc.watches[0].Episode != 1 || svc.watches[0].Media.ID != frieren2.ID {
+		t.Errorf("watches = %+v", svc.watches)
+	}
+}
+
+func TestWatchLifecycle(t *testing.T) {
+	svc := &fakeServices{}
+	m := New(context.Background(), svc)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.Update(watchMsg{session.Request{Media: frieren2, Episode: 3}})
+	if _, ok := m.top().(*playingScreen); !ok || !m.watching || m.gen != 1 {
+		t.Fatalf("after start: top=%T watching=%v gen=%d", m.top(), m.watching, m.gen)
+	}
+	firstCancel := m.cancel
+
+	// A stale status from an older watch is ignored.
+	m.Update(statusMsg{gen: 0, st: session.Status{Kind: session.StatusPlaying, Provider: "old"}})
+	if m.top().(*playingScreen).provider != "" {
+		t.Fatal("stale status applied")
+	}
+	m.Update(statusMsg{gen: 1, st: session.Status{Kind: session.StatusPlaying, Episode: 3, Provider: "anikoto"}})
+	if m.top().(*playingScreen).provider != "anikoto" {
+		t.Fatal("current status not applied")
+	}
+
+	// Switching episodes queues the new request until the old watch is done.
+	m.Update(watchMsg{session.Request{Media: frieren2, Episode: 4}})
+	if m.pending == nil || m.gen != 1 {
+		t.Fatalf("pending=%v gen=%d", m.pending, m.gen)
+	}
+	if firstCancel == nil {
+		t.Fatal("no cancel func")
+	}
+	m.Update(watchDoneMsg{gen: 1, err: context.Canceled})
+	if m.gen != 2 || m.pending != nil || !m.watching {
+		t.Fatalf("after switch: gen=%d pending=%v watching=%v", m.gen, m.pending, m.watching)
+	}
+	if p, ok := m.top().(*playingScreen); !ok || p.req.Episode != 4 || len(m.stack) != 2 {
+		t.Fatalf("stack = %d, top %T", len(m.stack), m.top())
+	}
+
+	// The watch ending with an error returns to the previous screen with a toast.
+	_, cmd := m.Update(watchDoneMsg{gen: 2, err: errors.New("episode 4 not available\nmore detail")})
+	for _, msg := range runBatch(cmd) {
+		m.Update(msg)
+	}
+	if _, ok := m.top().(*homeScreen); !ok || m.watching {
+		t.Fatalf("after done: top=%T watching=%v", m.top(), m.watching)
+	}
+	if m.toast != "episode 4 not available" || !m.toastErr {
+		t.Fatalf("toast = %q err=%v", m.toast, m.toastErr)
+	}
+}
+
+// runBatch executes a command (expanding batches) and returns its messages.
+// Only use with commands that return immediately.
+func runBatch(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		var out []tea.Msg
+		for _, c := range batch {
+			out = append(out, runBatch(c)...)
+		}
+		return out
+	}
+	return []tea.Msg{msg}
+}
+
+func TestQuitKeysRespectTextInput(t *testing.T) {
+	m := New(context.Background(), &fakeServices{})
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.Update(pushMsg{newSearch(context.Background(), m.svc)})
+	s := m.top().(*searchScreen)
+	s.input.Focus()
+
+	_, cmd := m.Update(press("q"))
+	if cmd != nil {
+		if _, quit := cmd().(tea.QuitMsg); quit {
+			t.Fatal("typing q in the search box quit anitui")
+		}
+	}
+	if s.input.Value() != "q" {
+		t.Fatalf("input = %q", s.input.Value())
+	}
+}
+
+func TestDetailsMarkers(t *testing.T) {
+	svc := &fakeServices{}
+	d := newDetails(context.Background(), svc, frieren2, domain.Sub)
+	now := time.Now()
+	d.Update(detailsProgressMsg{progress: []store.Progress{
+		{Episode: 1, Completed: true, UpdatedAt: now.Add(-2 * time.Hour)},
+		{Episode: 2, Completed: true, UpdatedAt: now.Add(-time.Hour)},
+	}})
+	if next := d.nextUp(); next != 3 {
+		t.Fatalf("nextUp = %v", next)
+	}
+	if d.numbers[d.list.cursor] != 3 {
+		t.Fatalf("cursor on episode %v, want 3", d.numbers[d.list.cursor])
+	}
+	view := d.View(100, 30)
+	for _, want := range []string{"✓", "▶", "next", "c continues with episode 3", "Following the exam,", "trio heads north & beyond."} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestListWindowKeepsCursorVisible(t *testing.T) {
+	var l list
+	l.setLen(100)
+	l.setCursor(50)
+	if start, end := l.window(10); start > 50 || end <= 50 || end-start != 10 {
+		t.Fatalf("window = %d..%d", start, end)
+	}
+	l.setCursor(99)
+	if _, end := l.window(10); end != 100 {
+		t.Fatalf("end = %d", end)
+	}
+	l.setCursor(0)
+	if start, _ := l.window(10); start != 0 {
+		t.Fatalf("start = %d", start)
+	}
+	l.setLen(3)
+	if start, end := l.window(10); start != 0 || end != 3 {
+		t.Fatalf("short list window = %d..%d", start, end)
+	}
+}
+
+func TestTextHelpers(t *testing.T) {
+	if got := plainDescription("A<br><br><br>B <b>bold</b> &amp; <i>it</i>"); got != "A\n\nB bold & it" {
+		t.Errorf("plainDescription = %q", got)
+	}
+	if got := truncate("Frieren: Beyond Journey’s End", 10); got != "Frieren: …" {
+		t.Errorf("truncate = %q", got)
+	}
+	if got := clampLines("a\nb\nc", 2); got != "a\nb …" {
+		t.Errorf("clampLines = %q", got)
+	}
+	if got := nextEpisode(store.Progress{Episode: 12.5, Completed: true}); got != 13 {
+		t.Errorf("nextEpisode = %v", got)
+	}
+}

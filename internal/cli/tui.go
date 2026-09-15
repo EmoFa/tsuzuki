@@ -1,0 +1,101 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/EmoFa/anitui/internal/anilist"
+	"github.com/EmoFa/anitui/internal/domain"
+	"github.com/EmoFa/anitui/internal/session"
+	"github.com/EmoFa/anitui/internal/store"
+	"github.com/EmoFa/anitui/internal/tui"
+)
+
+// runTUI starts the full-screen interface.
+func runTUI(ctx context.Context, app *App) error {
+	st, err := app.Store(ctx)
+	if err != nil {
+		return err
+	}
+	al, err := app.AniList(ctx)
+	if err != nil {
+		return err
+	}
+	// Messages that would otherwise go to stderr are shown inside the UI. The
+	// channel is never closed: a background solver may still send after exit,
+	// and notify never blocks.
+	notices := make(chan string, 8)
+	app.notices = notices
+	return tui.Run(ctx, &tuiServices{app: app, store: st, anilist: al}, notices)
+}
+
+// tuiServices adapts the app to what the TUI needs.
+type tuiServices struct {
+	app     *App
+	store   *store.Store
+	anilist *anilist.Client
+}
+
+func (s *tuiServices) Search(ctx context.Context, query string) ([]anilist.Media, error) {
+	return s.anilist.Search(ctx, query, 25)
+}
+
+func (s *tuiServices) Media(ctx context.Context, id int) (anilist.Media, error) {
+	return s.anilist.Media(ctx, id)
+}
+
+func (s *tuiServices) RecentShows(ctx context.Context, limit int) ([]store.Progress, error) {
+	return s.store.RecentShows(ctx, limit)
+}
+
+func (s *tuiServices) ShowProgress(ctx context.Context, mediaID int) ([]store.Progress, error) {
+	return s.store.ShowProgress(ctx, mediaID)
+}
+
+func (s *tuiServices) ProviderEpisodes(ctx context.Context, media anilist.Media, mode domain.Mode) ([]domain.Episode, error) {
+	reg, err := s.app.Providers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	mapper, err := s.app.Mapper(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var errs []error
+	for _, name := range s.app.Config.Providers.Order {
+		p, err := reg.Get(name)
+		if err != nil {
+			continue
+		}
+		show, err := mapper.Resolve(ctx, p, media, mode)
+		if err == nil {
+			var eps []domain.Episode
+			if eps, err = p.Episodes(ctx, show.ID, mode); err == nil && len(eps) > 0 {
+				return eps, nil
+			}
+		}
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return nil, fmt.Errorf("no provider lists episodes for %s: %w", media.DisplayTitle(), errors.Join(errs...))
+}
+
+func (s *tuiServices) Watch(ctx context.Context, req session.Request, onStatus func(session.Status)) error {
+	// A session per watch keeps each watch's status callback separate.
+	sess, err := s.app.Session(ctx, onStatus)
+	if err != nil {
+		return err
+	}
+	return sess.Watch(ctx, req)
+}
+
+func (s *tuiServices) Settings() tui.Settings {
+	return tui.Settings{
+		Config:     s.app.Config,
+		ConfigPath: s.app.ConfigPath,
+		DataDir:    s.app.Paths.DataDir,
+		CacheDir:   s.app.Paths.CacheDir,
+	}
+}

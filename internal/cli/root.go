@@ -14,6 +14,7 @@ import (
 	"github.com/EmoFa/anitui/internal/config"
 	"github.com/EmoFa/anitui/internal/httpx"
 	"github.com/EmoFa/anitui/internal/logx"
+	"github.com/EmoFa/anitui/internal/mapping"
 	"github.com/EmoFa/anitui/internal/store"
 	"github.com/EmoFa/anitui/internal/streamproxy"
 )
@@ -33,6 +34,8 @@ type App struct {
 	anilist   *anilist.Client
 	proxy     *streamproxy.Proxy
 	sniffer   *browser.Sniffer
+	mapper    *mapping.Mapper
+	notices   chan<- string // set while the TUI runs
 	closeLogs func() error
 }
 
@@ -100,9 +103,7 @@ func NewRootCmd() (*cobra.Command, *App) {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// The TUI lands here in a later phase.
-			fmt.Fprintln(cmd.OutOrStdout(), "The interactive UI isn't built yet. See `anitui --help`.")
-			return nil
+			return runTUI(cmd.Context(), app)
 		},
 	}
 	root.SetVersionTemplate(versionString() + "\n")

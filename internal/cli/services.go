@@ -74,6 +74,18 @@ func (a *App) AniList(ctx context.Context) (*anilist.Client, error) {
 	return a.anilist, nil
 }
 
+// Mapper returns the shared AniList-to-provider show mapper.
+func (a *App) Mapper(ctx context.Context) (*mapping.Mapper, error) {
+	if a.mapper == nil {
+		st, err := a.Store(ctx)
+		if err != nil {
+			return nil, err
+		}
+		a.mapper = mapping.New(st)
+	}
+	return a.mapper, nil
+}
+
 // Session builds a watch session wired to the real player, providers and store.
 func (a *App) Session(ctx context.Context, onStatus func(session.Status)) (*session.Session, error) {
 	st, err := a.Store(ctx)
@@ -81,6 +93,10 @@ func (a *App) Session(ctx context.Context, onStatus func(session.Status)) (*sess
 		return nil, err
 	}
 	reg, err := a.Providers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	mapper, err := a.Mapper(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +111,7 @@ func (a *App) Session(ctx context.Context, onStatus func(session.Status)) (*sess
 			ResumeRewind:     time.Duration(cfg.General.ResumeRewindSeconds) * time.Second,
 		},
 		Providers: reg,
-		Resolver:  mapping.New(st),
+		Resolver:  mapper,
 		Progress:  st,
 		Play: func(ctx context.Context, req player.Request) (session.Playback, error) {
 			return mpv.Play(ctx, req)
@@ -132,8 +148,15 @@ func (a *App) StreamProxy() (*streamproxy.Proxy, error) {
 	return p, nil
 }
 
-// notify surfaces a message that needs the user's attention. The TUI will
-// replace this with an in-app prompt.
+// notify surfaces a message that needs the user's attention: inside the TUI
+// when it is running, otherwise on stderr.
 func (a *App) notify(msg string) {
+	if ch := a.notices; ch != nil {
+		select {
+		case ch <- msg:
+		default: // never block a solver on a busy UI
+		}
+		return
+	}
 	fmt.Fprintln(os.Stderr, "»", msg)
 }
