@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/EmoFa/anitui/internal/anilist"
+	"github.com/EmoFa/anitui/internal/browser"
 	"github.com/EmoFa/anitui/internal/buildinfo"
 	"github.com/EmoFa/anitui/internal/config"
 	"github.com/EmoFa/anitui/internal/httpx"
@@ -31,6 +32,7 @@ type App struct {
 	http      *httpx.Client
 	anilist   *anilist.Client
 	proxy     *streamproxy.Proxy
+	sniffer   *browser.Sniffer
 	closeLogs func() error
 }
 
@@ -47,6 +49,9 @@ func (a *App) Store(ctx context.Context) (*store.Store, error) {
 }
 
 func (a *App) Close() {
+	if a.sniffer != nil {
+		a.sniffer.Close()
+	}
 	if a.proxy != nil {
 		a.proxy.Close()
 	}

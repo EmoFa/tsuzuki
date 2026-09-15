@@ -95,3 +95,11 @@ func TestVariantHeights(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+func TestVariants(t *testing.T) {
+	base, _ := url.Parse("https://cdn.example/a/master.m3u8?token=x")
+	vs := Variants([]byte(master), base)
+	if len(vs) != 2 || vs[0].Height != 1080 || vs[0].URI != "https://cdn.example/a/video/1080.m3u8" || vs[1].Height != 480 {
+		t.Fatalf("variants = %+v", vs)
+	}
+}

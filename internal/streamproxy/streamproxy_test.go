@@ -128,6 +128,57 @@ func TestProxyDecodesPlaylistsAndSelectsVariant(t *testing.T) {
 	}
 }
 
+func TestProxyUnwrapsDisguisedSegments(t *testing.T) {
+	// A fake PNG, some padding, then three aligned TS packets.
+	ts := make([]byte, 3*188)
+	for i := 0; i < len(ts); i += 188 {
+		ts[i] = 0x47
+		ts[i+1] = byte(i / 188)
+	}
+	wrapped := append(append([]byte("\x89PNG\r\n\x1a\nfake-image-data-IEND"), make([]byte, 150)...), ts...)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Range") != "" {
+			t.Errorf("range forwarded for wrapped segment")
+		}
+		switch r.URL.Path {
+		case "/seg.png":
+			w.Header().Set("Content-Type", "image/png")
+			w.Write(wrapped)
+		case "/plain.ts":
+			w.Write(ts)
+		}
+	}))
+	defer upstream.Close()
+
+	p, err := Start(httpx.New(httpx.Options{Timeout: -1}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	s := domain.Stream{URL: upstream.URL + "/seg.png", WrappedSegments: true}
+	if got := get(t, p.Stream(s), "bytes=0-"); got != string(ts) {
+		t.Fatalf("got %d bytes starting %q, want the TS payload", len(got), got[:min(8, len(got))])
+	}
+	s.URL = upstream.URL + "/plain.ts"
+	if got := get(t, p.Stream(s), ""); got != string(ts) {
+		t.Fatal("already-aligned TS must pass through unchanged")
+	}
+}
+
+func TestTSStart(t *testing.T) {
+	ts := make([]byte, 252+3*188+1)
+	for i := 252; i < len(ts); i += 188 {
+		ts[i] = 0x47
+	}
+	if off := tsStart(ts); off != 252 {
+		t.Fatalf("tsStart = %d", off)
+	}
+	if tsStart(make([]byte, 600)) != -1 {
+		t.Fatal("no sync bytes should give -1")
+	}
+}
+
 func TestProxyRejectsUnknownSession(t *testing.T) {
 	p, err := Start(httpx.New(httpx.Options{Timeout: -1}))
 	if err != nil {

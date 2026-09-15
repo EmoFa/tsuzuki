@@ -2,6 +2,7 @@
 
 | Provider | Checked | State |
 |---|---|---|
+| Anikoto | 2026-09-15 | Working (first in order). Streams via headless browser on megaplay embeds; disguised segments unwrapped by the proxy. See [anikoto.md](anikoto.md). |
 | Animepahe | 2026-09-15 | Working (interactive Cloudflare once, stream proxy for playback). See [animepahe.md](animepahe.md). |
 | AllAnime | 2026-09-15 | Search/episodes work; streams blocked by `AA_CRYPTO_MISSING`. See [allanime.md](allanime.md). |
 | Senshi | 2026-09-15 | Working on **senshi.to** (senshi.live expired). Encrypted playlists, played via the stream proxy. See [senshi.md](senshi.md). |

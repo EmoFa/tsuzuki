@@ -16,8 +16,8 @@ resume_rewind_seconds = 5
 
 [providers]
 # Providers are tried in this order until one returns a working stream.
-# Available: "senshi", "allanime", "animepahe".
-order = ["senshi", "allanime", "animepahe"]
+# Available: "anikoto", "senshi", "allanime", "animepahe".
+order = ["anikoto", "senshi", "allanime", "animepahe"]
 # How long to wait when checking that a stream URL actually responds.
 health_check_timeout = "5s"
 
@@ -28,7 +28,8 @@ mpv_path = ""
 extra_args = []
 
 [browser]
-# Chrome/Chromium used to get past Cloudflare/DDoS-Guard. Empty means auto-detect.
+# Chrome/Chromium used to get past Cloudflare/DDoS-Guard and to run embed players
+# some providers need (Anikoto). Empty means auto-detect.
 path = ""
 # Run the browser without a window.
 headless = true

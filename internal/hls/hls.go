@@ -92,17 +92,51 @@ func KeepVariant(body []byte, height int) []byte {
 	return bytes.Join(out, nil)
 }
 
+// Variant is one #EXT-X-STREAM-INF entry of a master playlist.
+type Variant struct {
+	Height int    // 0 when RESOLUTION is missing
+	URI    string // resolved against the master's URL
+}
+
+// Variants lists a master playlist's variants in playlist order.
+func Variants(body []byte, base *url.URL) []Variant {
+	var out []Variant
+	lines := bytes.Split(body, []byte("\n"))
+	for i := 0; i < len(lines); i++ {
+		line := bytes.TrimSpace(lines[i])
+		if !bytes.HasPrefix(line, []byte("#EXT-X-STREAM-INF")) {
+			continue
+		}
+		v := Variant{}
+		if m := resolution.FindSubmatch(line); m != nil {
+			v.Height, _ = strconv.Atoi(string(m[1]))
+		}
+		for i+1 < len(lines) {
+			i++
+			next := bytes.TrimSpace(lines[i])
+			if len(next) == 0 || next[0] == '#' {
+				continue
+			}
+			v.URI = string(next)
+			if base != nil {
+				if u, err := base.Parse(v.URI); err == nil {
+					v.URI = u.String()
+				}
+			}
+			break
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
 // VariantHeights lists the resolution heights of a master playlist's variants,
 // in playlist order.
 func VariantHeights(body []byte) []int {
 	var heights []int
-	for _, line := range bytes.Split(body, []byte("\n")) {
-		if !bytes.HasPrefix(bytes.TrimSpace(line), []byte("#EXT-X-STREAM-INF")) {
-			continue
-		}
-		if m := resolution.FindSubmatch(line); m != nil {
-			h, _ := strconv.Atoi(string(m[1]))
-			heights = append(heights, h)
+	for _, v := range Variants(body, nil) {
+		if v.Height > 0 {
+			heights = append(heights, v.Height)
 		}
 	}
 	return heights

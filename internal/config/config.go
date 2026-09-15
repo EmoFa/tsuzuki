@@ -97,7 +97,7 @@ func (d Duration) MarshalText() ([]byte, error) { return []byte(d.String()), nil
 var (
 	Modes         = []string{"sub", "dub"}
 	Qualities     = []string{"best", "1080", "720", "480", "360", "worst"}
-	ProviderNames = []string{"senshi", "allanime", "animepahe"}
+	ProviderNames = []string{"anikoto", "senshi", "allanime", "animepahe"}
 	Backends      = []string{"local", "anilist"}
 	SkipActions   = []string{"auto", "prompt", "off"}
 )
@@ -112,7 +112,7 @@ func Default() Config {
 			ResumeRewindSeconds: 5,
 		},
 		Providers: Providers{
-			Order:              []string{"senshi", "allanime", "animepahe"},
+			Order:              []string{"anikoto", "senshi", "allanime", "animepahe"},
 			HealthCheckTimeout: Duration{5 * time.Second},
 		},
 		Player:   Player{ExtraArgs: []string{}},

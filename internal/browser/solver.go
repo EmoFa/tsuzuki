@@ -104,25 +104,31 @@ func (s *Solver) Solve(ctx context.Context, pageURL string) (*httpx.Clearance, e
 }
 
 func (s *Solver) findBinary() (string, error) {
-	if s.BinPath != "" {
-		p, err := exec.LookPath(s.BinPath)
+	return findBinary(s.BinPath, s.AutoDownload, s.DownloadDir, s.Notify)
+}
+
+// findBinary resolves Chrome/Chromium from a configured path, the system, or
+// (optionally) a download.
+func findBinary(configured string, autoDownload bool, downloadDir string, notify func(string)) (string, error) {
+	if configured != "" {
+		p, err := exec.LookPath(configured)
 		if err != nil {
-			return "", fmt.Errorf("browser.path %q: %w", s.BinPath, err)
+			return "", fmt.Errorf("browser.path %q: %w", configured, err)
 		}
 		return p, nil
 	}
 	if p, ok := launcher.LookPath(); ok {
 		return p, nil
 	}
-	if !s.AutoDownload {
+	if !autoDownload {
 		return "", ErrNoBrowser
 	}
 	b := launcher.NewBrowser()
-	if s.DownloadDir != "" {
-		b.RootDir = s.DownloadDir
+	if downloadDir != "" {
+		b.RootDir = downloadDir
 	}
-	if s.Notify != nil {
-		s.Notify("Downloading Chromium for bot-protection checks…")
+	if notify != nil {
+		notify("Downloading Chromium for bot-protection checks…")
 	}
 	return b.Get()
 }

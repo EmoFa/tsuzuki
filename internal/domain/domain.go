@@ -78,6 +78,10 @@ type Stream struct {
 	VariantHeight int `json:"variant_height,omitempty"`
 	// Playlist decodes provider-obfuscated playlists. Requires NeedsProxy.
 	Playlist *PlaylistCodec `json:"-"`
+	// WrappedSegments marks MPEG-TS segments disguised behind a fake image
+	// header, which players can't demux. The proxy strips the header.
+	// Requires NeedsProxy.
+	WrappedSegments bool `json:"wrapped_segments,omitempty"`
 }
 
 // PlaylistCodec recognises and decodes playlists a provider has obfuscated.

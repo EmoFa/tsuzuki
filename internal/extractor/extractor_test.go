@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/EmoFa/anitui/internal/browser"
 	"github.com/EmoFa/anitui/internal/httpx"
 )
 
@@ -70,5 +71,46 @@ func TestResolveKwikSendsReferer(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, "/uwu.m3u8") {
 		t.Fatalf("got %s", got)
+	}
+}
+
+type fakeSniffer struct {
+	got map[string]browser.Captured
+	req browser.SniffRequest
+}
+
+func (f *fakeSniffer) Sniff(_ context.Context, req browser.SniffRequest) (map[string]browser.Captured, error) {
+	f.req = req
+	return f.got, nil
+}
+
+func TestResolveMegaplay(t *testing.T) {
+	sources, _ := os.ReadFile("testdata/megaplay_getsources.json")
+	master, _ := os.ReadFile("testdata/megaplay_master.m3u8")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Referer() != MegaplayOrigin {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Write(master)
+	}))
+	defer srv.Close()
+
+	sn := &fakeSniffer{got: map[string]browser.Captured{
+		"sources": {Body: sources},
+		"master":  {URL: srv.URL + "/806c/c512/master.m3u8?token=abc"},
+	}}
+	res, err := ResolveMegaplay(context.Background(), sn, httpx.New(httpx.Options{}), "https://megaplay.buzz/stream/s-2/163517/sub?s=tcdn", "https://anikototv.to/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sn.req.Referer != "https://anikototv.to/" || len(sn.req.Matches) != 2 {
+		t.Errorf("sniff request = %+v", sn.req)
+	}
+	if len(res.Variants) < 2 || res.Variants[0].Height != 1080 || res.Variants[0].URI != srv.URL+"/806c/c512/index-f1-v1-a1.m3u8" {
+		t.Errorf("variants = %+v", res.Variants)
+	}
+	if len(res.Tracks) != 1 || res.Tracks[0].Label != "English" || res.Intro.Start != 116 || res.Outro.End != 1470 {
+		t.Errorf("result = %+v", res)
 	}
 }

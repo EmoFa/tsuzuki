@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,8 +30,13 @@ import (
 	"github.com/EmoFa/anitui/internal/httpx"
 )
 
-// maxPlaylist bounds how much of a playlist is buffered for rewriting.
-const maxPlaylist = 16 << 20
+const (
+	// maxPlaylist bounds how much of a playlist is buffered for rewriting.
+	maxPlaylist = 16 << 20
+	// maxWrapper is how far into a wrapped segment the MPEG-TS data may start.
+	maxWrapper = 64 << 10
+	tsPacket   = 188
+)
 
 // forwardedResponseHeaders are copied from upstream for pass-through bodies.
 var forwardedResponseHeaders = []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Last-Modified", "ETag"}
@@ -50,6 +56,7 @@ type session struct {
 	headers       map[string]string
 	codec         *domain.PlaylistCodec
 	variantHeight int
+	unwrapTS      bool
 }
 
 // Start listens on a random localhost port. client must not have an overall
@@ -83,7 +90,7 @@ func (p *Proxy) URL(upstream string, headers map[string]string) string {
 // Stream registers a provider stream, honouring its playlist codec and
 // variant selection, and returns the local URL the player should open.
 func (p *Proxy) Stream(s domain.Stream) string {
-	return p.register(s.URL, &session{headers: s.Headers, codec: s.Playlist, variantHeight: s.VariantHeight})
+	return p.register(s.URL, &session{headers: s.Headers, codec: s.Playlist, variantHeight: s.VariantHeight, unwrapTS: s.WrappedSegments})
 }
 
 func (p *Proxy) register(upstream string, s *session) string {
@@ -137,7 +144,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// Players request playlists with "Range: bytes=0-". Forwarding that gets a 206
 	// from some CDNs; playlists are always fetched whole so they can be rewritten.
-	if rng := r.Header.Get("Range"); rng != "" && !hasPlaylistExt(upstream) {
+	// Wrapped segments are always fetched whole: a range would miss the offset.
+	if rng := r.Header.Get("Range"); rng != "" && !hasPlaylistExt(upstream) && !sess.unwrapTS {
 		req.Header.Set("Range", rng)
 	}
 
@@ -151,7 +159,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	body := bufio.NewReader(resp.Body)
+	body := bufio.NewReaderSize(resp.Body, maxWrapper+3*tsPacket)
 	peek, _ := body.Peek(64)
 	ok2xx := resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusPartialContent
 	encoded := sess.codec != nil && bytes.HasPrefix(peek, sess.codec.Prefix)
@@ -162,6 +170,22 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if resp.StatusCode >= 400 {
 		slog.Warn("proxy upstream status", "url", upstream, "status", resp.StatusCode)
+	}
+	if ok2xx && sess.unwrapTS {
+		if head, _ := body.Peek(maxWrapper + 3*tsPacket); !isTS(head) {
+			if off := tsStart(head); off > 0 {
+				body.Discard(off)
+				w.Header().Set("Content-Type", "video/mp2t")
+				if resp.ContentLength > int64(off) && resp.StatusCode == http.StatusOK {
+					w.Header().Set("Content-Length", strconv.FormatInt(resp.ContentLength-int64(off), 10))
+				}
+				w.WriteHeader(http.StatusOK)
+				if r.Method == http.MethodGet {
+					io.Copy(w, body)
+				}
+				return
+			}
+		}
 	}
 	for _, h := range forwardedResponseHeaders {
 		if v := resp.Header.Get(h); v != "" {
@@ -209,6 +233,24 @@ func isPlaylist(upstream, contentType string, peek []byte) bool {
 func hasPlaylistExt(upstream string) bool {
 	u, err := url.Parse(upstream)
 	return err == nil && strings.HasSuffix(strings.ToLower(u.Path), ".m3u8")
+}
+
+// isTS reports whether b starts on MPEG-TS packet boundaries.
+func isTS(b []byte) bool { return tsAligned(b, 0) }
+
+// tsStart finds where aligned MPEG-TS packets begin in b, or -1.
+func tsStart(b []byte) int {
+	for i := 0; i+2*tsPacket < len(b) && i < maxWrapper; i++ {
+		if tsAligned(b, i) {
+			return i
+		}
+	}
+	return -1
+}
+
+// tsAligned checks for three sync bytes a packet apart, starting at off.
+func tsAligned(b []byte, off int) bool {
+	return off+2*tsPacket < len(b) && b[off] == 0x47 && b[off+tsPacket] == 0x47 && b[off+2*tsPacket] == 0x47
 }
 
 func newSessionID() string {

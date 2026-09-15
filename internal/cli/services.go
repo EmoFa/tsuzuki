@@ -14,6 +14,7 @@ import (
 	"github.com/EmoFa/anitui/internal/player"
 	"github.com/EmoFa/anitui/internal/provider"
 	"github.com/EmoFa/anitui/internal/provider/allanime"
+	"github.com/EmoFa/anitui/internal/provider/anikoto"
 	"github.com/EmoFa/anitui/internal/provider/animepahe"
 	"github.com/EmoFa/anitui/internal/provider/senshi"
 	"github.com/EmoFa/anitui/internal/session"
@@ -49,6 +50,7 @@ func (a *App) Providers(ctx context.Context) (*provider.Registry, error) {
 		return nil, err
 	}
 	return provider.NewRegistry(
+		anikoto.New(client, a.Sniffer(), ""),
 		senshi.New(client, "", ""),
 		animepahe.New(client, ""),
 		allanime.New(client, ""),
@@ -101,6 +103,19 @@ func (a *App) Session(ctx context.Context, onStatus func(session.Status)) (*sess
 		Proxy:    func() (session.Proxy, error) { return a.StreamProxy() },
 		OnStatus: onStatus,
 	}), nil
+}
+
+// Sniffer returns the shared headless browser used to run embed players. The
+// browser itself starts on first use.
+func (a *App) Sniffer() *browser.Sniffer {
+	if a.sniffer == nil {
+		a.sniffer = &browser.Sniffer{
+			BinPath:      a.Config.Browser.Path,
+			AutoDownload: a.Config.Browser.AutoDownload,
+			DownloadDir:  filepath.Join(a.Paths.CacheDir, "chromium"),
+		}
+	}
+	return a.sniffer
 }
 
 // StreamProxy starts the local stream proxy on first use.
