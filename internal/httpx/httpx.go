@@ -71,6 +71,7 @@ type StatusError struct {
 	Method     string
 	URL        string
 	StatusCode int
+	Header     http.Header
 	Body       string // truncated
 }
 
@@ -266,7 +267,7 @@ func (c *Client) send(req *http.Request, headers map[string]string) ([]byte, err
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
-		return nil, &StatusError{Method: req.Method, URL: req.URL.String(), StatusCode: resp.StatusCode, Body: string(body)}
+		return nil, &StatusError{Method: req.Method, URL: req.URL.String(), StatusCode: resp.StatusCode, Header: resp.Header, Body: string(body)}
 	}
 	return io.ReadAll(resp.Body)
 }

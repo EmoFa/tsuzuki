@@ -8,11 +8,13 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/EmoFa/anitui/internal/anilist"
 	"github.com/EmoFa/anitui/internal/buildinfo"
 	"github.com/EmoFa/anitui/internal/config"
 	"github.com/EmoFa/anitui/internal/httpx"
 	"github.com/EmoFa/anitui/internal/logx"
 	"github.com/EmoFa/anitui/internal/store"
+	"github.com/EmoFa/anitui/internal/streamproxy"
 )
 
 // skipConfigAnnotation marks commands that must work even when the config file
@@ -27,6 +29,8 @@ type App struct {
 
 	store     *store.Store
 	http      *httpx.Client
+	anilist   *anilist.Client
+	proxy     *streamproxy.Proxy
 	closeLogs func() error
 }
 
@@ -43,6 +47,9 @@ func (a *App) Store(ctx context.Context) (*store.Store, error) {
 }
 
 func (a *App) Close() {
+	if a.proxy != nil {
+		a.proxy.Close()
+	}
 	if a.store != nil {
 		a.store.Close()
 	}
@@ -100,6 +107,10 @@ func NewRootCmd() (*cobra.Command, *App) {
 	root.AddCommand(
 		newVersionCmd(),
 		newConfigCmd(app),
+		newSearchCmd(app),
+		newWatchCmd(app),
+		newContinueCmd(app),
+		newHistoryCmd(app),
 		newDoctorCmd(app),
 		newDebugCmd(app),
 	)

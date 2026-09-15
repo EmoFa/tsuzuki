@@ -13,10 +13,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/EmoFa/anitui/internal/domain"
-	"github.com/EmoFa/anitui/internal/httpx"
 	"github.com/EmoFa/anitui/internal/player"
 	"github.com/EmoFa/anitui/internal/provider"
-	"github.com/EmoFa/anitui/internal/streamproxy"
+	"github.com/EmoFa/anitui/internal/session"
+	"github.com/EmoFa/anitui/internal/store"
 )
 
 // newDebugCmd exposes each layer on its own so providers can be checked
@@ -98,6 +98,9 @@ func newDebugCmd(app *App) *cobra.Command {
 	}
 	playCmd.Flags().DurationVar(&start, "start", 0, "start position, e.g. 12m30s")
 
+	cmd.AddCommand(
+		newMappingCmds(app)...,
+	)
 	cmd.AddCommand(
 		&cobra.Command{
 			Use:   "search <provider> <query>...",
@@ -188,25 +191,22 @@ func newDebugCmd(app *App) *cobra.Command {
 	return cmd
 }
 
-// playDebug plays a stream through the player layer and prints progress. The
-// session orchestrator (history, autoplay, skipping) builds on this in Phase 3.
+// playDebug plays one stream directly, without the session (no history,
+// resume or autoplay), and prints progress.
 func playDebug(ctx context.Context, app *App, s domain.Stream, title string, start time.Duration) error {
-	req := player.Request{URL: s.URL, Title: title, Start: start, Headers: s.Headers, AudioLang: s.AudioLang}
-	subURL := func(u string) string { return u }
+	var proxy session.Proxy
 	if s.NeedsProxy {
-		// No overall timeout: the proxy streams long bodies.
-		proxy, err := streamproxy.Start(httpx.New(httpx.Options{Timeout: -1}))
+		p, err := app.StreamProxy()
 		if err != nil {
 			return err
 		}
-		defer proxy.Close()
-		req.URL = proxy.Stream(s)
-		req.Headers = nil // the proxy adds them
-		subURL = func(u string) string { return proxy.URL(u, s.Headers) }
+		proxy = p
 	}
-	for _, sub := range s.Subtitles {
-		req.Subtitles = append(req.Subtitles, subURL(sub.URL))
+	req, err := session.PlayerRequest(s, proxy)
+	if err != nil {
+		return err
 	}
+	req.Title, req.Start = title, start
 
 	pb, err := player.New(player.Options{
 		MpvPath:   app.Config.Player.MpvPath,
@@ -264,6 +264,75 @@ func clock(d time.Duration) string {
 		return fmt.Sprintf("%d:%02d:%02d", h, m, sec)
 	}
 	return fmt.Sprintf("%02d:%02d", m, sec)
+}
+
+// newMappingCmds inspect and override which provider show an AniList entry uses.
+func newMappingCmds(app *App) []*cobra.Command {
+	mediaArg := func(s string) (int, error) {
+		id, err := strconv.Atoi(s)
+		if err != nil {
+			return 0, fmt.Errorf("anilist id must be a number, not %q", s)
+		}
+		return id, nil
+	}
+	return []*cobra.Command{
+		{
+			Use:   "mappings <anilist-id>",
+			Short: "Show saved provider mappings for an anime",
+			Args:  cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				id, err := mediaArg(args[0])
+				if err != nil {
+					return err
+				}
+				st, err := app.Store(cmd.Context())
+				if err != nil {
+					return err
+				}
+				ms, err := st.Mappings(cmd.Context(), id)
+				if err != nil {
+					return err
+				}
+				return printJSON(ms)
+			},
+		},
+		{
+			Use:   "map <anilist-id> <provider> <show-id>",
+			Short: "Pin an anime to a provider show (overrides automatic matching)",
+			Args:  cobra.ExactArgs(3),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				id, err := mediaArg(args[0])
+				if err != nil {
+					return err
+				}
+				st, err := app.Store(cmd.Context())
+				if err != nil {
+					return err
+				}
+				return st.SaveMapping(cmd.Context(), store.Mapping{MediaID: id, Provider: args[1], ShowID: args[2], ShowTitle: args[2], Manual: true})
+			},
+		},
+		{
+			Use:   "unmap <anilist-id> [provider]",
+			Short: "Forget mappings so they are matched again",
+			Args:  cobra.RangeArgs(1, 2),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				id, err := mediaArg(args[0])
+				if err != nil {
+					return err
+				}
+				st, err := app.Store(cmd.Context())
+				if err != nil {
+					return err
+				}
+				provider := ""
+				if len(args) == 2 {
+					provider = args[1]
+				}
+				return st.DeleteMappings(cmd.Context(), id, provider)
+			},
+		},
+	}
 }
 
 func printJSON(v any) error {
