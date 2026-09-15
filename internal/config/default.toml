@@ -1,0 +1,62 @@
+# anitui configuration
+# Every key is optional; anything omitted falls back to the value shown here.
+
+[general]
+# Audio/subtitle track to look for: "sub" or "dub".
+mode = "sub"
+# Preferred stream quality: "best", "1080", "720", "480", "360" or "worst".
+# If the exact quality is unavailable, the nearest lower one is used.
+quality = "best"
+# Start the next episode automatically when one finishes.
+autoplay_next = true
+# Fraction of an episode that counts as watched (0-1].
+watched_threshold = 0.85
+# When resuming, start this many seconds before where you left off.
+resume_rewind_seconds = 5
+
+[providers]
+# Providers are tried in this order until one returns a working stream.
+# Available: "senshi", "anineko", "allanime", "animepahe".
+order = ["senshi", "anineko", "allanime", "animepahe"]
+# How long to wait when checking that a stream URL actually responds.
+health_check_timeout = "5s"
+
+[player]
+# Path to the mpv binary. Empty means search PATH.
+mpv_path = ""
+# Extra arguments passed to mpv, e.g. ["--fullscreen"].
+extra_args = []
+
+[browser]
+# Chrome/Chromium used to get past Cloudflare/DDoS-Guard. Empty means auto-detect.
+path = ""
+# Run the browser without a window.
+headless = true
+# Download a Chromium build if none is found.
+auto_download = false
+
+[tracking]
+# Where watch progress is tracked: "local" or "anilist".
+backend = "local"
+# AniList API client ID for login. 0 uses the built-in client.
+anilist_client_id = 0
+
+[skip]
+# What to do at openings, endings and recaps: "auto", "prompt" or "off".
+opening = "auto"
+ending = "auto"
+recap = "prompt"
+# Skip whole filler / recap episodes during autoplay.
+filler_episodes = false
+recap_episodes = false
+
+[discord]
+# Show what you're watching in Discord.
+enabled = true
+# Discord application ID. Empty uses the built-in application.
+client_id = ""
+# Show the anime's cover art in the presence.
+show_cover = true
+
+[ui]
+theme = "default"
