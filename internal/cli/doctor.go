@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/EmoFa/anitui/internal/browser"
+	"github.com/EmoFa/anitui/internal/discord"
 	"github.com/EmoFa/anitui/internal/domain"
 	"github.com/EmoFa/anitui/internal/httpx"
 	"github.com/EmoFa/anitui/internal/player"
@@ -106,6 +107,8 @@ func localChecks(ctx context.Context, app *App) []check {
 		checks = append(checks, check{"browser", statusOK, bin})
 	}
 
+	checks = append(checks, discordCheck(ctx, app))
+
 	if st != nil {
 		if list, err := st.Clearances(ctx); err == nil {
 			detail := "none stored"
@@ -185,4 +188,32 @@ func firstLineOf(s string) string {
 		line = line[:160] + "…"
 	}
 	return line
+}
+
+func discordCheck(ctx context.Context, app *App) check {
+	id := app.discordClientID()
+	switch {
+	case !app.Config.Discord.Enabled:
+		return check{"discord", statusOK, "disabled"}
+	case id == "":
+		return check{"discord", statusWarn, "no application ID: set discord.client_id to show presence"}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	c, err := discord.Dial(ctx, id)
+	switch {
+	case errors.Is(err, discord.ErrNotRunning):
+		return check{"discord", statusWarn, "Discord isn't running (presence starts when it is)"}
+	case err != nil:
+		return check{"discord", statusFail, err.Error()}
+	}
+	defer c.Close()
+	who := c.User.Global
+	if who == "" {
+		who = c.User.Username
+	}
+	if who == "" {
+		return check{"discord", statusOK, "connected"}
+	}
+	return check{"discord", statusOK, "connected as " + who}
 }

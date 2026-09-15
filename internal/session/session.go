@@ -115,7 +115,7 @@ const (
 	StatusResolving      StatusKind = iota + 1 // looking for Episode
 	StatusProviderFailed                       // Provider couldn't supply Episode; Err says why
 	StatusPlaying                              // playback started; Stream, Start set
-	StatusProgress                             // Position/Duration updated
+	StatusProgress                             // Position/Duration/Paused updated; also sent on pause and seek
 	StatusWatched                              // Episode crossed the watched threshold
 	StatusTracked                              // the list was updated for Episode; Reason is a note, Err a failure
 	StatusSkipped                              // a range was skipped; Reason is its kind ("opening", ...)
@@ -133,6 +133,7 @@ type Status struct {
 	Start    time.Duration
 	Position time.Duration
 	Duration time.Duration
+	Paused   bool
 	Reason   string  // StatusStopped: mpv end reason ("eof", "quit", "error", ...)
 	Through  float64 // StatusEpisodeSkipped: last episode of the skipped run (Episode is the first)
 	Err      error
@@ -571,14 +572,18 @@ func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, m
 			switch e.Kind {
 			case player.EventPosition:
 				u := base
-				u.Kind, u.Position, u.Duration = StatusProgress, e.Position, e.Duration
+				u.Kind, u.Position, u.Duration, u.Paused = StatusProgress, e.Position, e.Duration, pb.State().Paused
 				s.status(u)
 				applySkip(skipper.Position(e.Position))
 				if time.Since(lastSave) >= saveInterval {
 					record(pb.State(), false)
 				}
 			case player.EventPause, player.EventSeek:
-				record(pb.State(), false)
+				st := pb.State()
+				u := base
+				u.Kind, u.Position, u.Duration, u.Paused = StatusProgress, st.Position, st.Duration, st.Paused
+				s.status(u)
+				record(st, false)
 			case player.EventMessage:
 				if len(e.Args) > 0 && e.Args[0] == skipMessage {
 					applySkip(skipper.Request(pb.State().Position))

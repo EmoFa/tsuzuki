@@ -13,6 +13,7 @@ import (
 	"github.com/EmoFa/anitui/internal/browser"
 	"github.com/EmoFa/anitui/internal/buildinfo"
 	"github.com/EmoFa/anitui/internal/config"
+	"github.com/EmoFa/anitui/internal/discord"
 	"github.com/EmoFa/anitui/internal/httpx"
 	"github.com/EmoFa/anitui/internal/logx"
 	"github.com/EmoFa/anitui/internal/mapping"
@@ -41,6 +42,7 @@ type App struct {
 	// several goroutines, and login replaces the tracker.
 	lazyMu    sync.Mutex
 	tracker   *tracker.Tracker
+	presence  *discord.Presence
 	notices   chan<- string // set while the TUI runs
 	closeLogs func() error
 }
@@ -58,6 +60,12 @@ func (a *App) Store(ctx context.Context) (*store.Store, error) {
 }
 
 func (a *App) Close() {
+	a.lazyMu.Lock()
+	presence := a.presence
+	a.lazyMu.Unlock()
+	if presence != nil {
+		presence.Close() // clears the presence before the process exits
+	}
 	if a.sniffer != nil {
 		a.sniffer.Close()
 	}

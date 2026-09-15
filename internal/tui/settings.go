@@ -97,6 +97,7 @@ func (s *settingsScreen) build() {
 		row("filler episodes", onOff(c.Skip.FillerEpisodes)),
 		section("Discord"),
 		row("rich presence", onOff(c.Discord.Enabled)),
+		row("cover art", onOff(c.Discord.ShowCover)),
 		"",
 		styleMuted.Render("Change these with `anitui config edit`, then restart anitui."),
 	}

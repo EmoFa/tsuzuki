@@ -203,5 +203,9 @@ func (c *Config) Validate() error {
 	oneOf("skip.ending", c.Skip.Ending, SkipActions)
 	oneOf("skip.recap", c.Skip.Recap, SkipActions)
 
+	if id := c.Discord.ClientID; id != "" && strings.Trim(id, "0123456789") != "" {
+		errs = append(errs, fmt.Errorf("discord.client_id: %q must be a numeric Discord application ID", id))
+	}
+
 	return errors.Join(errs...)
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/EmoFa/anitui/internal/anilist"
 	"github.com/EmoFa/anitui/internal/auth"
 	"github.com/EmoFa/anitui/internal/browser"
+	"github.com/EmoFa/anitui/internal/discord"
 	"github.com/EmoFa/anitui/internal/domain"
 	"github.com/EmoFa/anitui/internal/httpx"
 	"github.com/EmoFa/anitui/internal/mapping"
@@ -232,8 +233,52 @@ func (a *App) Session(ctx context.Context, onStatus func(session.Status)) (*sess
 		OnWatched:    a.trackWatched,
 		SkipRanges:   aniskip.ranges,
 		EpisodeKinds: a.FillerList(client, st).Kinds,
-		OnStatus:     onStatus,
+		OnStatus:     a.withPresence(onStatus),
 	}), nil
+}
+
+// DefaultDiscordClientID is anitui's Discord application, whose name Discord
+// shows as "Watching <name>". discord.client_id overrides it.
+const DefaultDiscordClientID = "1549464164995563550"
+
+func (a *App) discordClientID() string {
+	if id := a.Config.Discord.ClientID; id != "" {
+		return id
+	}
+	return DefaultDiscordClientID
+}
+
+// withPresence also sends session updates to Discord when enabled.
+func (a *App) withPresence(onStatus func(session.Status)) func(session.Status) {
+	presence := a.Presence()
+	if presence == nil {
+		return onStatus
+	}
+	obs := &discord.Observer{Presence: presence, ShowCover: a.Config.Discord.ShowCover}
+	return func(st session.Status) {
+		obs.Status(st)
+		if onStatus != nil {
+			onStatus(st)
+		}
+	}
+}
+
+// Presence starts the Discord presence updater on first use, or returns nil
+// when it's disabled or no application ID is configured.
+func (a *App) Presence() *discord.Presence {
+	id := a.discordClientID()
+	if !a.Config.Discord.Enabled || id == "" {
+		return nil
+	}
+	a.lazyMu.Lock()
+	defer a.lazyMu.Unlock()
+	if a.presence == nil {
+		a.presence = discord.NewPresence(func(ctx context.Context) (discord.Setter, error) {
+			return discord.Dial(ctx, id)
+		})
+		a.presence.Start()
+	}
+	return a.presence
 }
 
 // Sniffer returns the shared headless browser used to run embed players. The
