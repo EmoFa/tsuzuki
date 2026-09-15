@@ -113,7 +113,7 @@ func (p *Presence) loop() {
 			lastRefill = now
 		}
 
-		var wait time.Duration = time.Hour
+		wait := time.Hour
 		switch {
 		case reflect.DeepEqual(want, sent):
 			clearAfter = time.Time{}
@@ -168,7 +168,7 @@ func (p *Presence) loop() {
 		case <-p.done:
 			if conn != nil && sent != nil {
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-				conn.SetActivity(ctx, nil)
+				conn.SetActivity(ctx, nil) //nolint:errcheck // best effort on exit
 				cancel()
 			}
 			return

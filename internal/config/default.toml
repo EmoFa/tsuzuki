@@ -61,4 +61,5 @@ client_id = ""
 show_cover = true
 
 [ui]
+# "default" uses your terminal's colours; "mono" uses no colour, only bold and dim text.
 theme = "default"

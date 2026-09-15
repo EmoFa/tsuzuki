@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -220,13 +221,13 @@ func (c *Client) query(ctx context.Context, q string, vars map[string]any, out a
 
 		var se *httpx.StatusError
 		if errors.As(err, &se) {
-			if se.StatusCode == 429 && attempt == 0 {
+			if se.StatusCode == http.StatusTooManyRequests && attempt == 0 {
 				if err := sleep(ctx, retryAfter(se)); err != nil {
 					return err
 				}
 				continue
 			}
-			if se.StatusCode == 401 {
+			if se.StatusCode == http.StatusUnauthorized {
 				return ErrUnauthorized
 			}
 			// AniList reports GraphQL errors (e.g. not found) with HTTP status codes.
@@ -268,6 +269,17 @@ func sleep(ctx context.Context, d time.Duration) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// Ping checks that the AniList API answers, bypassing the cache.
+func (c *Client) Ping(ctx context.Context) error {
+	var data struct {
+		Media *struct{ ID int } `json:"Media"`
+	}
+	if err := c.query(ctx, `query { Media(id: 1, type: ANIME) { id } }`, nil, &data); err != nil {
+		return fmt.Errorf("anilist: %w", err)
+	}
+	return nil
 }
 
 // User is the logged-in AniList user.

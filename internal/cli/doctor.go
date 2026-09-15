@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"text/tabwriter"
@@ -12,12 +14,14 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/EmoFa/anitui/internal/anilist"
 	"github.com/EmoFa/anitui/internal/browser"
 	"github.com/EmoFa/anitui/internal/discord"
 	"github.com/EmoFa/anitui/internal/domain"
 	"github.com/EmoFa/anitui/internal/httpx"
 	"github.com/EmoFa/anitui/internal/player"
 	"github.com/EmoFa/anitui/internal/provider"
+	"github.com/EmoFa/anitui/internal/skip"
 	"github.com/EmoFa/anitui/internal/streamcheck"
 )
 
@@ -36,13 +40,14 @@ type check struct {
 }
 
 func newDoctorCmd(app *App) *cobra.Command {
-	var providers, streams bool
+	var offline, streams bool
 	var query string
 	var timeout time.Duration
 	cmd := &cobra.Command{
 		Use:   "doctor",
-		Short: "Check that anitui's dependencies and providers are working",
-		Long: `Checks the config, database, mpv and browser, then searches every configured
+		Short: "Check that anitui's dependencies, services and providers are working",
+		Long: `Checks the config, database, mpv, browser, Discord and AniList login, then
+AniList, the skip-time and filler services, and a search on every configured
 provider. With --streams it also resolves an episode from each provider and
 checks the stream plays. Doctor never opens a verification window: a provider
 that needs one is reported so you can verify it by watching something.`,
@@ -50,7 +55,8 @@ that needs one is reported so you can verify it by watching something.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			checks := localChecks(ctx, app)
-			if providers || streams {
+			if !offline {
+				checks = append(checks, serviceChecks(ctx, app, timeout)...)
 				checks = append(checks, providerChecks(ctx, app, query, streams, timeout)...)
 			}
 
@@ -68,19 +74,19 @@ that needs one is reported so you can verify it by watching something.`,
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&providers, "providers", true, "search each configured provider")
+	cmd.Flags().BoolVar(&offline, "offline", false, "only check local setup (no AniList, services or providers)")
 	cmd.Flags().BoolVar(&streams, "streams", false, "also resolve and health-check a stream from each provider")
 	cmd.Flags().StringVar(&query, "query", "frieren", "title to search providers for")
-	cmd.Flags().DurationVar(&timeout, "timeout", 45*time.Second, "time limit per provider")
+	cmd.Flags().DurationVar(&timeout, "timeout", 45*time.Second, "time limit per provider or service")
 	return cmd
 }
 
 func localChecks(ctx context.Context, app *App) []check {
-	var checks []check
+	checks := []check{{"anitui", statusOK, fmt.Sprintf("%s, %s/%s", versionString(), runtime.GOOS, runtime.GOARCH)}}
 	if _, err := os.Stat(app.ConfigPath); err == nil {
 		checks = append(checks, check{"config", statusOK, app.ConfigPath})
 	} else {
-		checks = append(checks, check{"config", statusOK, "defaults (no config file)"})
+		checks = append(checks, check{"config", statusOK, "defaults (no config file at " + app.ConfigPath + ")"})
 	}
 
 	st, err := app.Store(ctx)
@@ -90,11 +96,12 @@ func localChecks(ctx context.Context, app *App) []check {
 		v, _ := st.SchemaVersion(ctx)
 		checks = append(checks, check{"database", statusOK, fmt.Sprintf("schema v%d, %s", v, app.Paths.Database())})
 	}
+	checks = append(checks, check{"log", statusOK, app.Paths.LogFile()})
 
 	if mpv, err := player.FindMpv(app.Config.Player.MpvPath); err != nil {
 		checks = append(checks, check{"mpv", statusFail, err.Error()})
 	} else {
-		checks = append(checks, check{"mpv", statusOK, mpv})
+		checks = append(checks, check{"mpv", statusOK, withVersion(ctx, mpv)})
 	}
 
 	if bin, err := browser.FindBinary(app.Config.Browser.Path); err != nil {
@@ -104,12 +111,15 @@ func localChecks(ctx context.Context, app *App) []check {
 		}
 		checks = append(checks, c)
 	} else {
-		checks = append(checks, check{"browser", statusOK, bin})
+		checks = append(checks, check{"browser", statusOK, withVersion(ctx, bin)})
 	}
 
-	checks = append(checks, discordCheck(ctx, app))
-
+	checks = append(checks, discordCheck(ctx, app), accountCheck(app))
 	if st != nil {
+		if pending, err := st.PendingSyncs(ctx); err == nil && len(pending) > 0 {
+			checks = append(checks, check{"sync queue", statusWarn, fmt.Sprintf("%d list change(s) not sent to AniList yet; last error: %s (run `anitui sync`)",
+				len(pending), firstLineOf(pending[len(pending)-1].LastError))})
+		}
 		if list, err := st.Clearances(ctx); err == nil {
 			detail := "none stored"
 			if len(list) > 0 {
@@ -123,6 +133,117 @@ func localChecks(ctx context.Context, app *App) []check {
 		}
 	}
 	return checks
+}
+
+// withVersion appends the first line of `bin --version`, when it answers quickly.
+func withVersion(ctx context.Context, bin string) string {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, "--version").Output()
+	if err != nil {
+		return bin
+	}
+	line, _, _ := strings.Cut(firstLineOf(string(out)), " Copyright")
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return bin
+	}
+	return fmt.Sprintf("%s (%s)", bin, line)
+}
+
+func accountCheck(app *App) check {
+	backend := app.Config.Tracking.Backend
+	tok, err := app.tokenFile().Load()
+	switch {
+	case err != nil:
+		return check{"anilist login", statusFail, err.Error()}
+	case backend == "local" && tok.Valid():
+		return check{"anilist login", statusOK, "logged in as " + tok.UserName + ", but tracking.backend is local (not syncing)"}
+	case backend == "local":
+		return check{"anilist login", statusOK, "not used (tracking.backend = local)"}
+	case tok == nil:
+		return check{"anilist login", statusWarn, "not logged in: progress is kept locally until you run `anitui login`"}
+	case !tok.Valid():
+		return check{"anilist login", statusWarn, "login for " + tok.UserName + " expired: run `anitui login`"}
+	case !tok.ExpiresAt.IsZero() && time.Until(tok.ExpiresAt) < 14*24*time.Hour:
+		return check{"anilist login", statusWarn, fmt.Sprintf("%s, expires %s: run `anitui login` soon", tok.UserName, tok.ExpiresAt.Format("2006-01-02"))}
+	}
+	detail := "logged in as " + tok.UserName
+	if !tok.ExpiresAt.IsZero() {
+		detail += " until " + tok.ExpiresAt.Format("2006-01-02")
+	}
+	return check{"anilist login", statusOK, detail}
+}
+
+// serviceChecks reaches AniList (verifying the login), AniSkip and the filler list.
+func serviceChecks(ctx context.Context, app *App, timeout time.Duration) []check {
+	client, err := app.HTTP(ctx)
+	if err != nil {
+		return []check{{"services", statusFail, err.Error()}}
+	}
+	timed := func(name string, f func(ctx context.Context) (string, error)) func() check {
+		return func() check {
+			ctx, cancel := context.WithTimeout(ctx, min(timeout, 20*time.Second))
+			defer cancel()
+			start := time.Now()
+			detail, err := f(ctx)
+			elapsed := time.Since(start).Round(100 * time.Millisecond)
+			if err != nil {
+				return check{name, statusFail, fmt.Sprintf("%s · %s", firstLineOf(err.Error()), elapsed)}
+			}
+			return check{name, statusOK, fmt.Sprintf("%s · %s", detail, elapsed)}
+		}
+	}
+
+	runs := []func() check{
+		timed("anilist api", func(ctx context.Context) (string, error) {
+			al, err := app.AniList(ctx)
+			if err != nil {
+				return "", err
+			}
+			if err := al.Ping(ctx); err != nil {
+				return "", err
+			}
+			tok, _ := app.tokenFile().Load()
+			if !tok.Valid() {
+				return "reachable", nil
+			}
+			user, err := al.WithToken(tok.AccessToken).Viewer(ctx)
+			if errors.Is(err, anilist.ErrUnauthorized) {
+				return "", errors.New("reachable, but AniList rejected your login: run `anitui login`")
+			}
+			if err != nil {
+				return "", err
+			}
+			return "reachable, login accepted for " + user.Name, nil
+		}),
+		timed("aniskip", func(ctx context.Context) (string, error) {
+			// Frieren episode 1 has well-established skip times.
+			ranges, err := (&skip.AniSkip{Client: client}).Ranges(ctx, 52991, 1, 0)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("reachable (%d skip times for a sample episode)", len(ranges)), nil
+		}),
+		timed("filler list", func(ctx context.Context) (string, error) {
+			naruto := anilist.Media{ID: 1735, Title: anilist.Title{English: "Naruto Shippuden", Romaji: "Naruto: Shippuuden"}}
+			kinds, err := (&skip.FillerList{Client: client}).Kinds(ctx, naruto)
+			if err != nil {
+				return "", err
+			}
+			if len(kinds) == 0 {
+				return "", errors.New("reachable, but a sample show couldn't be read (the site may have changed)")
+			}
+			return fmt.Sprintf("reachable (%d episodes classified for a sample show)", len(kinds)), nil
+		}),
+	}
+	results := make([]check, len(runs))
+	var wg sync.WaitGroup
+	for i, run := range runs {
+		wg.Go(func() { results[i] = run() })
+	}
+	wg.Wait()
+	return results
 }
 
 // providerChecks runs every configured provider concurrently.

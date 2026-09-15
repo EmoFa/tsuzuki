@@ -174,7 +174,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if ok2xx && sess.unwrapTS {
 		if head, _ := body.Peek(maxWrapper + 3*tsPacket); !isTS(head) {
 			if off := tsStart(head); off > 0 {
-				body.Discard(off)
+				body.Discard(off) //nolint:errcheck // off bytes are already buffered by Peek
 				w.Header().Set("Content-Type", "video/mp2t")
 				if resp.ContentLength > int64(off) && resp.StatusCode == http.StatusOK {
 					w.Header().Set("Content-Length", strconv.FormatInt(resp.ContentLength-int64(off), 10))

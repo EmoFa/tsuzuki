@@ -11,6 +11,9 @@ var (
 )
 
 func init() {
+	if Commit == "none" { // goreleaser's placeholder when git has no tags
+		Commit = ""
+	}
 	if Commit != "" {
 		return
 	}

@@ -29,6 +29,7 @@ import (
 	"github.com/go-rod/rod/lib/proto"
 
 	"github.com/EmoFa/anitui/internal/httpx"
+	"github.com/EmoFa/anitui/internal/procfs"
 )
 
 var ErrNoBrowser = errors.New("no usable Chrome/Chromium: install one or set browser.path in the config")
@@ -121,7 +122,7 @@ func findBinary(configured string, autoDownload bool, downloadDir string, notify
 	if configured != "" {
 		p, err := exec.LookPath(configured)
 		if err != nil {
-			return "", fmt.Errorf("%w: browser.path %q: %v", ErrNoBrowser, configured, err)
+			return "", fmt.Errorf("%w: browser.path %q: %w", ErrNoBrowser, configured, err)
 		}
 		return p, nil
 	}
@@ -279,6 +280,7 @@ func startDevTools(ctx context.Context, bin string, args ...string) (*devToolsPr
 	if err != nil {
 		return nil, err
 	}
+	procfs.DieWithParent(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting browser: %w", err)
 	}

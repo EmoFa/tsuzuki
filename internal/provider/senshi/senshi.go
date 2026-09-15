@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"regexp"
 	"slices"
@@ -139,7 +140,7 @@ func (p *Provider) detail(ctx context.Context, publicID string) (animeDetail, er
 	}
 	err := p.client.GetJSON(ctx, p.base+"/anime/"+url.PathEscape(publicID), p.headers(), &d)
 	var se *httpx.StatusError
-	if errors.As(err, &se) && se.StatusCode == 404 {
+	if errors.As(err, &se) && se.StatusCode == http.StatusNotFound {
 		return d, fmt.Errorf("senshi show %s: %w", publicID, provider.ErrNotFound)
 	}
 	if err != nil {

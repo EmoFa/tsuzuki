@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/spf13/cobra"
@@ -76,7 +77,7 @@ func (a *App) Close() {
 		a.store.Close()
 	}
 	if a.closeLogs != nil {
-		a.closeLogs()
+		a.closeLogs() //nolint:errcheck // nowhere left to report it
 	}
 }
 
@@ -149,7 +150,10 @@ func versionString() string {
 		if len(commit) > 12 {
 			commit = commit[:12]
 		}
-		s += " (" + commit + ")"
+		// git-describe versions already name the commit.
+		if !strings.Contains(buildinfo.Version, commit[:min(7, len(commit))]) {
+			s += " (" + commit + ")"
+		}
 	}
 	return s
 }

@@ -14,6 +14,8 @@ import (
 	"slices"
 	"strconv"
 	"time"
+
+	"github.com/EmoFa/anitui/internal/procfs"
 )
 
 var ErrMpvNotFound = errors.New("mpv not found: install it (https://mpv.io/installation/) or set player.mpv_path in the config")
@@ -93,6 +95,7 @@ func (p *Player) Play(ctx context.Context, req Request) (*Playback, error) {
 	if p.opts.Output != nil {
 		cmd.Stdout, cmd.Stderr = p.opts.Output, p.opts.Output
 	}
+	procfs.DieWithParent(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting mpv: %w", err)
 	}

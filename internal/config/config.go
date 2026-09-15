@@ -100,6 +100,7 @@ var (
 	ProviderNames = []string{"anikoto", "senshi", "allanime", "animepahe"}
 	Backends      = []string{"local", "anilist"}
 	SkipActions   = []string{"auto", "prompt", "off"}
+	Themes        = []string{"default", "mono"}
 )
 
 func Default() Config {
@@ -202,6 +203,7 @@ func (c *Config) Validate() error {
 	oneOf("skip.opening", c.Skip.Opening, SkipActions)
 	oneOf("skip.ending", c.Skip.Ending, SkipActions)
 	oneOf("skip.recap", c.Skip.Recap, SkipActions)
+	oneOf("ui.theme", c.UI.Theme, Themes)
 
 	if id := c.Discord.ClientID; id != "" && strings.Trim(id, "0123456789") != "" {
 		errs = append(errs, fmt.Errorf("discord.client_id: %q must be a numeric Discord application ID", id))

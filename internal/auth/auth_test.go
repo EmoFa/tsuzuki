@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -59,7 +60,7 @@ func TestLoginSuccessAndError(t *testing.T) {
 }
 
 func TestLoginNeedsClientID(t *testing.T) {
-	if _, err := Login(context.Background(), LoginOptions{}); err != ErrNoClientID {
+	if _, err := Login(context.Background(), LoginOptions{}); !errors.Is(err, ErrNoClientID) {
 		t.Fatalf("err = %v", err)
 	}
 }

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 func TestTemplateMatchesDefault(t *testing.T) {
@@ -87,5 +89,24 @@ func TestResolvePathsEnvOverride(t *testing.T) {
 	}
 	if p.ConfigFile() != filepath.Join("/tmp/a", "config.toml") || p.Database() != filepath.Join("/tmp/b", "anitui.db") || p.LogFile() != filepath.Join("/tmp/c", "anitui.log") {
 		t.Fatalf("%+v", p)
+	}
+}
+
+// TestDocs checks that docs/config.md describes every key in the default config.
+func TestDocs(t *testing.T) {
+	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "config.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tree map[string]map[string]any
+	if err := toml.Unmarshal(Template, &tree); err != nil {
+		t.Fatal(err)
+	}
+	for section, keys := range tree {
+		for key := range keys {
+			if name := "`" + section + "." + key + "`"; !strings.Contains(string(doc), "| "+name+" |") {
+				t.Errorf("docs/config.md has no table row for %s", name)
+			}
+		}
 	}
 }

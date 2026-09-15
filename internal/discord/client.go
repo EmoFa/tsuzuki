@@ -58,7 +58,7 @@ type Client struct {
 // Dial connects to the first Discord IPC endpoint that accepts and completes
 // the handshake for clientID.
 func Dial(ctx context.Context, clientID string) (*Client, error) {
-	var lastErr error = ErrNotRunning
+	lastErr := ErrNotRunning
 	for _, addr := range ipcAddresses() {
 		conn, err := dialIPC(ctx, addr)
 		if err != nil {
@@ -105,7 +105,7 @@ func (c *Client) handshake(ctx context.Context, clientID string) error {
 			var data struct {
 				User User `json:"user"`
 			}
-			json.Unmarshal(msg.Data, &data)
+			_ = json.Unmarshal(msg.Data, &data) // the user is informational
 			c.User = data.User
 			return nil
 		}
@@ -179,7 +179,7 @@ func (c *Client) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.conn.SetWriteDeadline(time.Now().Add(time.Second))
-	c.write(opClose, map[string]any{})
+	c.write(opClose, map[string]any{}) //nolint:errcheck // closing regardless
 	return c.conn.Close()
 }
 

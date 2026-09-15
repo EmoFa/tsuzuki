@@ -98,6 +98,8 @@ func (s *settingsScreen) build() {
 		section("Discord"),
 		row("rich presence", onOff(c.Discord.Enabled)),
 		row("cover art", onOff(c.Discord.ShowCover)),
+		section("Interface"),
+		row("theme", c.UI.Theme),
 		"",
 		styleMuted.Render("Change these with `anitui config edit`, then restart anitui."),
 	}

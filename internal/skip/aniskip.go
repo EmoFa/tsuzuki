@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -105,7 +106,7 @@ func (a *AniSkip) lookup(ctx context.Context, malID, episode int) ([]aniskipRang
 	var resp aniskipResponse
 	err := a.Client.GetJSON(ctx, u, nil, &resp)
 	var se *httpx.StatusError
-	if errors.As(err, &se) && se.StatusCode == 404 {
+	if errors.As(err, &se) && se.StatusCode == http.StatusNotFound {
 		err, resp = nil, aniskipResponse{}
 	}
 	if err != nil {

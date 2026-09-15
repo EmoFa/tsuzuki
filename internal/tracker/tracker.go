@@ -164,7 +164,9 @@ func (t *Tracker) Flush(ctx context.Context) (int, error) {
 			return sent, err
 		default:
 			slog.Warn("list sync failed", "media", p.MediaID, "attempts", p.Attempts+1, "err", err)
-			t.Store.SyncFailed(ctx, p.MediaID, err)
+			if serr := t.Store.SyncFailed(ctx, p.MediaID, err); serr != nil {
+				slog.Warn("recording list sync failure", "media", p.MediaID, "err", serr)
+			}
 			errs = append(errs, err)
 		}
 	}

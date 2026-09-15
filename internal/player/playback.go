@@ -193,7 +193,7 @@ func (pb *Playback) Close() error {
 		close(pb.closing)
 		if pb.proc != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			pb.Quit(ctx)
+			pb.Quit(ctx) //nolint:errcheck // killed below if it didn't quit
 			cancel()
 			select {
 			case <-pb.proc.exited:

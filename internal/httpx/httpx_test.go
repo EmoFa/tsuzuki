@@ -207,7 +207,7 @@ func TestWAFBlockIsNotAChallenge(t *testing.T) {
 
 	_, err := New(Options{Solver: solver}).Get(context.Background(), srv.URL, nil)
 	var se *StatusError
-	if !errors.As(err, &se) || se.StatusCode != 403 {
+	if !errors.As(err, &se) || se.StatusCode != http.StatusForbidden {
 		t.Fatalf("err = %v", err)
 	}
 	if solver.calls.Load() != 0 {
@@ -317,7 +317,7 @@ func TestRateLimitRetryAfter(t *testing.T) {
 	start = time.Now()
 	_, err = c.Get(context.Background(), srv.URL+"/long", nil)
 	var se *StatusError
-	if !errors.As(err, &se) || se.StatusCode != 429 || time.Since(start) > 2*time.Second {
+	if !errors.As(err, &se) || se.StatusCode != http.StatusTooManyRequests || time.Since(start) > 2*time.Second {
 		t.Fatalf("err=%v elapsed=%v (long Retry-After should not be waited out)", err, time.Since(start))
 	}
 }

@@ -14,6 +14,8 @@ import (
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
+
+	"github.com/EmoFa/anitui/internal/procfs"
 )
 
 // Sniffer loads pages in a shared headless browser and reports the network
@@ -205,7 +207,8 @@ func (s *Sniffer) ensure(ctx context.Context) (*rod.Browser, error) {
 	if err != nil {
 		return nil, err
 	}
-	dir, err := os.MkdirTemp("", "anitui-sniffer-")
+	procfs.SweepStale(os.TempDir(), "anitui-sniffer-") // profiles of killed runs
+	dir, err := os.MkdirTemp("", procfs.Name("anitui-sniffer-"))
 	if err != nil {
 		return nil, err
 	}

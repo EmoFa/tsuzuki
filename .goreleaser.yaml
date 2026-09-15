@@ -1,0 +1,73 @@
+# Release builds: `make snapshot` locally, or push a v* tag to publish via
+# .github/workflows/release.yml.
+version: 2
+project_name: anitui
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: anitui
+    main: ./cmd/anitui
+    binary: anitui
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/EmoFa/anitui/internal/buildinfo.Version={{ .Version }}
+      - -X github.com/EmoFa/anitui/internal/buildinfo.Commit={{ .FullCommit }}
+      - -X github.com/EmoFa/anitui/internal/buildinfo.Date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: anitui
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE*
+      - docs/config.md
+
+nfpms:
+  - id: packages
+    package_name: anitui
+    vendor: EmoFa
+    homepage: https://github.com/EmoFa/anitui
+    maintainer: EmoFa <https://github.com/EmoFa>
+    description: Terminal app for watching anime in mpv, with AniList tracking.
+    formats: [deb, rpm, archlinux]
+    dependencies: [mpv]
+    recommends: [chromium]
+    contents:
+      - src: README.md
+        dst: /usr/share/doc/anitui/README.md
+      - src: docs/config.md
+        dst: /usr/share/doc/anitui/config.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+release:
+  github:
+    owner: EmoFa
+    name: anitui
+  draft: true

@@ -604,7 +604,7 @@ func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, m
 	switch {
 	case ctx.Err() != nil:
 	case st.EndReason == "error" || (st.EndReason == "" && waitErr != nil):
-		return st, fmt.Errorf("episode %s from %s: %w: %v", res.episode.Label(), res.provider, errPlaybackFailed, playbackErr(waitErr))
+		return st, fmt.Errorf("episode %s from %s: %w: %w", res.episode.Label(), res.provider, errPlaybackFailed, playbackErr(waitErr))
 	case prematureEnd(st):
 		return st, fmt.Errorf("episode %s from %s: %w: stream ended at %s of %s", res.episode.Label(), res.provider,
 			errPlaybackFailed, st.Position.Round(time.Second), st.Duration.Round(time.Second))

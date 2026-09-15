@@ -107,6 +107,7 @@ func New(ctx context.Context, svc Services) *Model {
 
 // Run starts the UI and blocks until the user quits.
 func Run(ctx context.Context, svc Services, notices <-chan string) error {
+	applyTheme(svc.Settings().Config.UI.Theme)
 	m := New(ctx, svc)
 	p := tea.NewProgram(m, tea.WithContext(ctx))
 	m.send = p.Send
