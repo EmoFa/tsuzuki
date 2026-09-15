@@ -288,3 +288,66 @@ func TestFamilyFor(t *testing.T) {
 		}
 	}
 }
+
+func TestRateLimitRetryAfter(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/short":
+			if hits.Add(1) == 1 {
+				w.Header().Set("Retry-After", "1")
+				w.WriteHeader(http.StatusTooManyRequests)
+				return
+			}
+			w.Write([]byte("ok"))
+		case "/long":
+			w.Header().Set("Retry-After", "120")
+			w.WriteHeader(http.StatusTooManyRequests)
+		}
+	}))
+	defer srv.Close()
+	c := New(Options{})
+
+	start := time.Now()
+	body, err := c.Get(context.Background(), srv.URL+"/short", nil)
+	if err != nil || string(body) != "ok" || time.Since(start) < 900*time.Millisecond {
+		t.Fatalf("body=%q err=%v elapsed=%v", body, err, time.Since(start))
+	}
+
+	start = time.Now()
+	_, err = c.Get(context.Background(), srv.URL+"/long", nil)
+	var se *StatusError
+	if !errors.As(err, &se) || se.StatusCode != 429 || time.Since(start) > 2*time.Second {
+		t.Fatalf("err=%v elapsed=%v (long Retry-After should not be waited out)", err, time.Since(start))
+	}
+}
+
+func TestClearanceKey(t *testing.T) {
+	ck := func(domain string) *http.Cookie { return &http.Cookie{Name: "cf_clearance", Domain: domain} }
+	for _, tt := range []struct {
+		host    string
+		cookies []*http.Cookie
+		want    string
+	}{
+		{"api.animepahe.pw", []*http.Cookie{ck(".animepahe.pw")}, "animepahe.pw"},
+		{"animepahe.pw", []*http.Cookie{ck("animepahe.pw"), ck(".animepahe.pw")}, "animepahe.pw"},
+		{"a.b.example.com", []*http.Cookie{ck(".b.example.com"), ck(".example.com")}, "example.com"},
+		{"animepahe.pw", []*http.Cookie{ck(".other.com")}, "animepahe.pw"},
+		{"animepahe.pw", []*http.Cookie{ck("")}, "animepahe.pw"},
+		{"animepahe.pw", []*http.Cookie{ck(".pw")}, "animepahe.pw"},
+	} {
+		if got := clearanceKey(tt.host, tt.cookies); got != tt.want {
+			t.Errorf("clearanceKey(%q) = %q, want %q", tt.host, got, tt.want)
+		}
+	}
+}
+
+func TestClearanceSharedAcrossSubdomains(t *testing.T) {
+	store := &memStore{m: map[string]*Clearance{
+		"example.test": {UserAgent: clearUA, Cookies: []*http.Cookie{{Name: "cf_clearance", Value: "v"}}},
+	}}
+	c := New(Options{Store: store})
+	if cl := c.clearance(context.Background(), "api.example.test"); cl == nil || cl.Cookies[0].Value != "v" {
+		t.Fatalf("subdomain did not inherit the parent clearance: %+v", cl)
+	}
+}

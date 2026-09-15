@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,8 +22,13 @@ import (
 // DefaultUserAgent is used for hosts without a clearance.
 const DefaultUserAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
 
-// maxErrorBody bounds how much of a non-2xx body is read for detection and errors.
-const maxErrorBody = 1 << 20
+const (
+	// maxErrorBody bounds how much of a non-2xx body is read for detection and errors.
+	maxErrorBody = 1 << 20
+	// maxRetryAfter is the longest Retry-After a 429 is waited out for; longer
+	// waits are returned to the caller.
+	maxRetryAfter = 10 * time.Second
+)
 
 // Clearance lets plain HTTP requests through a host's bot protection. The
 // cookies are only honoured together with the exact UserAgent that earned them.
@@ -208,6 +214,17 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 			}
 		}
 
+		if resp.StatusCode == http.StatusTooManyRequests && attempt < c.retries {
+			if wait, ok := retryAfter(resp.Header); ok && wait <= maxRetryAfter {
+				resp.Body.Close()
+				slog.Debug("http rate limited", "url", req.URL.String(), "wait", wait)
+				if err := sleepCtx(ctx, wait); err != nil {
+					return nil, err
+				}
+				continue
+			}
+		}
+
 		if isRetryableStatus(resp.StatusCode) && attempt < c.retries {
 			resp.Body.Close()
 			slog.Debug("http retry", "url", req.URL.String(), "status", resp.StatusCode, "attempt", attempt+1)
@@ -357,17 +374,21 @@ func (c *Client) solve(ctx context.Context, host, pageURL string) error {
 	if err == nil && cl == nil {
 		err = errors.New("solver returned no clearance")
 	}
+	key := host
+	if err == nil {
+		key = clearanceKey(host, cl.Cookies)
+	}
 
 	c.mu.Lock()
 	if err == nil {
-		c.clearances[host] = cl
+		c.clearances[key] = cl
 	}
 	delete(c.solving, host)
 	c.mu.Unlock()
 
 	if err == nil && c.store != nil {
-		if serr := c.store.SaveClearance(ctx, host, cl); serr != nil {
-			slog.Warn("saving clearance", "host", host, "err", serr)
+		if serr := c.store.SaveClearance(ctx, key, cl); serr != nil {
+			slog.Warn("saving clearance", "host", key, "err", serr)
 		}
 	}
 	call.err = err
@@ -376,7 +397,11 @@ func (c *Client) solve(ctx context.Context, host, pageURL string) error {
 }
 
 func (c *Client) sleep(ctx context.Context, attempt int) error {
-	t := time.NewTimer(c.backoff << attempt)
+	return sleepCtx(ctx, c.backoff<<attempt)
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
 	defer t.Stop()
 	select {
 	case <-t.C:
@@ -384,6 +409,38 @@ func (c *Client) sleep(ctx context.Context, attempt int) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// retryAfter parses a Retry-After header given in seconds or as an HTTP date.
+func retryAfter(h http.Header) (time.Duration, bool) {
+	v := strings.TrimSpace(h.Get("Retry-After"))
+	if v == "" {
+		return 0, false
+	}
+	if secs, err := strconv.Atoi(v); err == nil && secs >= 0 {
+		return time.Duration(secs) * time.Second, true
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		return max(time.Until(t), 0), true
+	}
+	return 0, false
+}
+
+// clearanceKey picks where a clearance is stored: the broadest cookie domain
+// that covers host (".animepahe.pw" for "api.animepahe.pw"), so every subdomain
+// shares it, or host itself when cookies aren't domain-scoped.
+func clearanceKey(host string, cookies []*http.Cookie) string {
+	key := host
+	for _, ck := range cookies {
+		d := strings.TrimPrefix(strings.ToLower(ck.Domain), ".")
+		if d == "" || !strings.Contains(d, ".") {
+			continue
+		}
+		if (host == d || strings.HasSuffix(host, "."+d)) && len(d) < len(key) {
+			key = d
+		}
+	}
+	return key
 }
 
 func cloneRequest(req *http.Request) (*http.Request, error) {
@@ -424,7 +481,15 @@ func isRetryableStatus(code int) bool {
 }
 
 // detectChallenge distinguishes solvable browser challenges from plain blocks
-// (e.g. a Cloudflare WAF 403), which a browser would not get past either.
+// and ordinary errors, which a browser would not get past either. Both
+// Cloudflare and DDoS-Guard put their Server header on every response, so the
+// header alone never identifies a challenge.
+//
+//   - Cloudflare challenge: cf-mitigated: challenge (HTTP/2), or the
+//     "Just a moment" page loading challenges.cloudflare.com. Its "Attention
+//     Required" block page (sent e.g. to HTTP/1.1 clients) is not solvable.
+//   - DDoS-Guard challenge: a page loading its js-challenge script or titled
+//     "DDoS-Guard". A site's own 403 served through DDoS-Guard is not.
 func detectChallenge(resp *http.Response, body []byte) string {
 	server := strings.ToLower(resp.Header.Get("Server"))
 	switch {
@@ -433,7 +498,8 @@ func detectChallenge(resp *http.Response, body []byte) string {
 	case strings.Contains(server, "cloudflare") &&
 		(bytes.Contains(body, []byte("challenges.cloudflare.com")) || bytes.Contains(body, []byte("<title>Just a moment"))):
 		return "cloudflare"
-	case strings.Contains(server, "ddos-guard") || bytes.Contains(body, []byte("DDoS-Guard")):
+	case strings.Contains(server, "ddos-guard") &&
+		(bytes.Contains(body, []byte("/.well-known/ddos-guard/js-challenge")) || bytes.Contains(body, []byte("<title>DDoS-Guard</title>"))):
 		return "ddos-guard"
 	}
 	return ""

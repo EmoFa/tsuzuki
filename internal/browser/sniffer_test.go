@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,6 +32,8 @@ func TestSnifferCapturesRequestsAndBodies(t *testing.T) {
 			w.Write([]byte(`{"next":"/media/master.m3u8?token=abc"}`))
 		case "/media/master.m3u8":
 			w.Write([]byte("#EXTM3U\n"))
+		case "/nothing":
+			w.Write([]byte("<html><body>no player here</body></html>"))
 		default:
 			http.NotFound(w, r)
 		}
@@ -62,6 +65,17 @@ func TestSnifferCapturesRequestsAndBodies(t *testing.T) {
 	}
 	if referer != "http://example.org/" {
 		t.Errorf("referer = %q", referer)
+	}
+
+	// A page that fails to load is reported without waiting for the timeout.
+	start := time.Now()
+	_, err = s.Sniff(ctx, SniffRequest{
+		URL:     srv.URL + "/missing",
+		Matches: []Match{{Name: "master", URL: regexp.MustCompile(`master\.m3u8`)}},
+		Timeout: 20 * time.Second,
+	})
+	if err == nil || !strings.Contains(err.Error(), "HTTP 404") || time.Since(start) > 10*time.Second {
+		t.Errorf("missing page: err=%v after %v", err, time.Since(start))
 	}
 
 	// The browser is reused; a page that never makes the request times out.

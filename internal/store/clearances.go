@@ -51,3 +51,28 @@ func (s *Store) DeleteClearance(ctx context.Context, host string) error {
 	_, err := s.DB.ExecContext(ctx, "DELETE FROM clearances WHERE host = ?", host)
 	return err
 }
+
+// ClearanceInfo summarises a stored clearance without its secrets.
+type ClearanceInfo struct {
+	Host       string
+	ObtainedAt time.Time
+}
+
+func (s *Store) Clearances(ctx context.Context) ([]ClearanceInfo, error) {
+	rows, err := s.DB.QueryContext(ctx, "SELECT host, obtained_at FROM clearances ORDER BY host")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ClearanceInfo
+	for rows.Next() {
+		var ci ClearanceInfo
+		var obtained int64
+		if err := rows.Scan(&ci.Host, &obtained); err != nil {
+			return nil, err
+		}
+		ci.ObtainedAt = time.Unix(obtained, 0)
+		out = append(out, ci)
+	}
+	return out, rows.Err()
+}

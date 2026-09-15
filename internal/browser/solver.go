@@ -39,7 +39,7 @@ const challengeJS = `() => {
 	if (location.href === "about:blank" || document.readyState !== "complete") return true;
 	const t = document.title || "";
 	if (/just a moment|checking your browser|ddos-guard|attention required/i.test(t)) return true;
-	return !!document.querySelector("#challenge-form, #challenge-error-text, #challenge-running");
+	return !!document.querySelector('#challenge-form, #challenge-error-text, #challenge-running, script[src*="ddos-guard/js-challenge"]');
 }`
 
 var devtoolsURL = regexp.MustCompile(`DevTools listening on (ws://\S+)`)
@@ -73,7 +73,14 @@ func (s *Solver) Solve(ctx context.Context, pageURL string) (*httpx.Clearance, e
 		return nil, err
 	}
 
+	host := pageURL
+	if u, err := url.Parse(pageURL); err == nil {
+		host = u.Host
+	}
 	if s.Headless {
+		if s.Notify != nil {
+			s.Notify(fmt.Sprintf("Checking %s's bot protection…", host))
+		}
 		cl, err := s.headless(ctx, bin, pageURL, durationOr(s.HeadlessWait, 15*time.Second))
 		if err != nil || cl != nil {
 			return cl, err
@@ -81,10 +88,6 @@ func (s *Solver) Solve(ctx context.Context, pageURL string) (*httpx.Clearance, e
 		slog.Info("headless browser did not pass challenge; asking user", "url", pageURL)
 	}
 
-	host := pageURL
-	if u, err := url.Parse(pageURL); err == nil {
-		host = u.Host
-	}
 	if s.Notify != nil {
 		s.Notify(fmt.Sprintf("%s needs a one-time human verification. Complete it in the browser window that just opened, wait for the site to load, then close the window.", host))
 	}
@@ -105,6 +108,11 @@ func (s *Solver) Solve(ctx context.Context, pageURL string) (*httpx.Clearance, e
 
 func (s *Solver) findBinary() (string, error) {
 	return findBinary(s.BinPath, s.AutoDownload, s.DownloadDir, s.Notify)
+}
+
+// FindBinary resolves the Chrome/Chromium anitui would use, without downloading.
+func FindBinary(configured string) (string, error) {
+	return findBinary(configured, false, "", nil)
 }
 
 // findBinary resolves Chrome/Chromium from a configured path, the system, or

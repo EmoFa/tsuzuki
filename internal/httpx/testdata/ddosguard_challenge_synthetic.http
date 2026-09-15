@@ -1,0 +1,5 @@
+HTTP/1.1 403 Forbidden
+Server: ddos-guard
+Content-Type: text/html; charset=utf-8
+
+<!DOCTYPE html><html><head><title>DDoS-Guard</title></head><body><div id="ddg-l10n-title">Checking your browser before accessing</div><script src="/.well-known/ddos-guard/js-challenge/index.js"></script></body></html>

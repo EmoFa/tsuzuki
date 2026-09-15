@@ -1,0 +1,20 @@
+HTTP/1.1 200 OK
+Server: ddos-guard
+Connection: keep-alive
+Keep-Alive: timeout=60
+Set-Cookie: __ddg8_=Kar19lkb3eITX4gK; Domain=.example.org; Path=/; Expires=Tue, 15-Sep-2026 07:47:46 GMT
+Set-Cookie: __ddg10_=1789457266; Domain=.example.org; Path=/; Expires=Tue, 15-Sep-2026 07:47:46 GMT
+Set-Cookie: __ddg9_=203.0.113.7; Domain=.example.org; Path=/; Expires=Tue, 15-Sep-2026 07:47:46 GMT
+Content-Security-Policy: upgrade-insecure-requests;
+Set-Cookie: __ddg1_=ViuSgq2fcc4tuGJN2tf3; Domain=.example.org; HttpOnly; Path=/; Expires=Wed, 15-Sep-2027 07:27:46 GMT
+Date: Tue, 15 Sep 2026 07:27:46 GMT
+Content-Type: text/html
+Content-Length: 1980
+Last-Modified: Sun, 03 May 2026 09:13:30 GMT
+ETag: "69f711ba-7bc"
+Cache-Control: public, max-age=600, s-maxage=600
+Referrer-Policy: same-origin
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+Accept-Ranges: bytes
+
+<!doctype html><html prefix="og: https://ogp.me/ns#"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Example</title><script src="/static/js/lazy-styles.js"></script><link rel="icon" href="/assets/favicon-CPB6l7kH.ico"><meta name="og:type" content="website"><meta name="og:site_name" content="Example"><meta name="og:title" content="Example"><meta name="og:image" content="https://example.org/static/site-logo.svg"><meta name="og:image:width" content="150"><meta name="og:image:height" content="150"><script type="module" crossorigin src="/assets/index-Fc_nfkUe.js"></script><link rel="stylesheet" crossorigin href="/assets/style-DvDCM8eP.css"><script type="module">import.meta.url;import("_").catch(()=>1);(async function*(){})().next();if(location.protocol!="file:"){window.__vite_is_modern_browser=true}</script><script type="module">!function(){if(window.__vite_is_modern_browser)return;console.warn("vite: loading legacy chunks, syntax error above and the same error below should be ignored");var e=document.getElementById("vite-legacy-polyfill"),n=document.createElement("script");n.src=e.src,n.onload=function(){System.import(document.getElementById('vite-legacy-entry').getAttribute('data-src'))},document.body.appendChild(n)}();</script></head><body><div id="root"></div><script nomodule>!function(){var e=document,t=e.createElement("script");if(!("noModule"in t)&&"onbeforeload"in t){var n=!1;e.addEventListener("beforeload",(function(e){if(e.target===t)n=!0;else if(!e.target.hasAttribute("nomodule")||!n)return;e.preventDefault()}),!0),t.type="module",t.src=".",e.head.appendChild(t),t.remove()}}();</script><script nomodule crossorigin id="vite-legacy-polyfill" src="/assets/polyfills-legacy-CTFsgIEY.js"></script><script nomodule crossorigin id="vite-legacy-entry" data-src="/assets/index-legacy-BWo_NWC7.js">System.import(document.getElementById('vite-legacy-entry').getAttribute('data-src'))</script></body></html>

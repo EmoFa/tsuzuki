@@ -33,7 +33,7 @@ func (a *App) HTTP(ctx context.Context) (*httpx.Client, error) {
 	}
 	solver := &browser.Solver{
 		BinPath:      a.Config.Browser.Path,
-		ProfileDir:   filepath.Join(a.Paths.DataDir, "browser-profile"),
+		ProfileDir:   a.browserProfileDir(),
 		AutoDownload: a.Config.Browser.AutoDownload,
 		DownloadDir:  filepath.Join(a.Paths.CacheDir, "chromium"),
 		Headless:     a.Config.Browser.Headless,
@@ -41,6 +41,11 @@ func (a *App) HTTP(ctx context.Context) (*httpx.Client, error) {
 	}
 	a.http = httpx.New(httpx.Options{Solver: solver, Store: st})
 	return a.http, nil
+}
+
+// browserProfileDir holds the solver's persistent browser profile.
+func (a *App) browserProfileDir() string {
+	return filepath.Join(a.Paths.DataDir, "browser-profile")
 }
 
 // Providers returns every implemented provider.

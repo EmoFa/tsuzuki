@@ -95,13 +95,16 @@ func (s *Sniffer) Sniff(ctx context.Context, req SniffRequest) (map[string]Captu
 	got := map[string]Captured{}
 	pending := map[proto.NetworkRequestID]*inFlight{}
 	done := make(chan struct{})
+	var finishOnce sync.Once
+	finish := func() { finishOnce.Do(func() { close(done) }) }
+	var pageErr error                         // set when the page itself fails to load; mu held
 	record := func(name string, c Captured) { // mu held
 		if _, have := got[name]; have {
 			return
 		}
 		got[name] = c
 		if len(got) == len(req.Matches) {
-			close(done)
+			finish()
 		}
 	}
 
@@ -124,6 +127,11 @@ func (s *Sniffer) Sniff(ctx context.Context, req SniffRequest) (map[string]Captu
 		defer mu.Unlock()
 		if f, ok := pending[e.RequestID]; ok {
 			f.status = e.Response.Status
+		}
+		// Don't wait out the timeout for a page that failed to load.
+		if e.Type == proto.NetworkResourceTypeDocument && e.Response.URL == req.URL && e.Response.Status >= 400 {
+			pageErr = fmt.Errorf("page %s returned HTTP %d", req.URL, e.Response.Status)
+			finish()
 		}
 	}, func(e *proto.NetworkLoadingFinished) {
 		mu.Lock()
@@ -162,6 +170,9 @@ func (s *Sniffer) Sniff(ctx context.Context, req SniffRequest) (map[string]Captu
 	}
 	mu.Lock()
 	defer mu.Unlock()
+	if pageErr != nil {
+		return nil, pageErr
+	}
 	out := make(map[string]Captured, len(got))
 	for k, v := range got {
 		out[k] = v

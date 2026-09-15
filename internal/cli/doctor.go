@@ -4,11 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
+	"github.com/EmoFa/anitui/internal/browser"
 	"github.com/EmoFa/anitui/internal/player"
 )
 
@@ -44,8 +45,29 @@ func newDoctorCmd(app *App) *cobra.Command {
 			} else {
 				checks = append(checks, check{"mpv", true, mpv})
 			}
-			checks = append(checks, binaryCheck("browser", app.Config.Browser.Path,
-				"chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "chrome", "msedge"))
+			if bin, err := browser.FindBinary(app.Config.Browser.Path); err != nil {
+				detail := err.Error()
+				if app.Config.Browser.AutoDownload {
+					detail += " (will be downloaded on first use)"
+				}
+				checks = append(checks, check{"browser", app.Config.Browser.AutoDownload, detail})
+			} else {
+				checks = append(checks, check{"browser", true, bin})
+			}
+
+			if s, err := app.Store(cmd.Context()); err == nil {
+				if list, err := s.Clearances(cmd.Context()); err == nil {
+					detail := "none stored"
+					if len(list) > 0 {
+						var hosts []string
+						for _, c := range list {
+							hosts = append(hosts, fmt.Sprintf("%s (%s)", c.Host, c.ObtainedAt.Format("2006-01-02")))
+						}
+						detail = strings.Join(hosts, ", ")
+					}
+					checks = append(checks, check{"clearances", true, detail})
+				}
+			}
 
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			failed := false
@@ -63,19 +85,4 @@ func newDoctorCmd(app *App) *cobra.Command {
 			return nil
 		},
 	}
-}
-
-// binaryCheck looks up a configured path, or the first candidate found on PATH.
-// This is a presence check only; the player and browser packages will replace
-// it with real detection.
-func binaryCheck(name, configured string, candidates ...string) check {
-	if configured != "" {
-		candidates = []string{configured}
-	}
-	for _, c := range candidates {
-		if p, err := exec.LookPath(c); err == nil {
-			return check{name, true, p}
-		}
-	}
-	return check{name, false, "not found (tried " + fmt.Sprint(candidates) + ")"}
 }

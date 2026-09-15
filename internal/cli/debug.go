@@ -98,9 +98,8 @@ func newDebugCmd(app *App) *cobra.Command {
 	}
 	playCmd.Flags().DurationVar(&start, "start", 0, "start position, e.g. 12m30s")
 
-	cmd.AddCommand(
-		newMappingCmds(app)...,
-	)
+	cmd.AddCommand(newMappingCmds(app)...)
+	cmd.AddCommand(newBrowserCmds(app)...)
 	cmd.AddCommand(
 		&cobra.Command{
 			Use:   "search <provider> <query>...",
@@ -330,6 +329,70 @@ func newMappingCmds(app *App) []*cobra.Command {
 					provider = args[1]
 				}
 				return st.DeleteMappings(cmd.Context(), id, provider)
+			},
+		},
+	}
+}
+
+// newBrowserCmds inspect and reset bot-protection state.
+func newBrowserCmds(app *App) []*cobra.Command {
+	return []*cobra.Command{
+		{
+			Use:   "clearances",
+			Short: "List stored bot-protection clearances",
+			Args:  cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				st, err := app.Store(cmd.Context())
+				if err != nil {
+					return err
+				}
+				list, err := st.Clearances(cmd.Context())
+				if err != nil {
+					return err
+				}
+				if list == nil {
+					list = []store.ClearanceInfo{}
+				}
+				return printJSON(list)
+			},
+		},
+		{
+			Use:   "clear-clearance <host>",
+			Short: "Forget a site's clearance so it is verified again",
+			Args:  cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				st, err := app.Store(cmd.Context())
+				if err != nil {
+					return err
+				}
+				return st.DeleteClearance(cmd.Context(), args[0])
+			},
+		},
+		{
+			Use:   "reset-browser",
+			Short: "Delete the browser profile and every stored clearance",
+			Long:  "Use when a site's verification keeps failing. Every protected site will ask for verification again.",
+			Args:  cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				st, err := app.Store(cmd.Context())
+				if err != nil {
+					return err
+				}
+				list, err := st.Clearances(cmd.Context())
+				if err != nil {
+					return err
+				}
+				for _, c := range list {
+					if err := st.DeleteClearance(cmd.Context(), c.Host); err != nil {
+						return err
+					}
+				}
+				dir := app.browserProfileDir()
+				if err := os.RemoveAll(dir); err != nil {
+					return fmt.Errorf("removing %s (is a verification window still open?): %w", dir, err)
+				}
+				fmt.Fprintf(os.Stderr, "Removed %d clearance(s) and %s\n", len(list), dir)
+				return nil
 			},
 		},
 	}

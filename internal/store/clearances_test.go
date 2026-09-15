@@ -45,6 +45,10 @@ func TestClearanceRoundTrip(t *testing.T) {
 		t.Fatalf("got %+v %+v", out, out.Cookies[0])
 	}
 
+	if list, err := s.Clearances(ctx); err != nil || len(list) != 1 || list[0].Host != "animepahe.pw" {
+		t.Fatalf("clearances = %+v err=%v", list, err)
+	}
+
 	if err := s.DeleteClearance(ctx, "animepahe.pw"); err != nil {
 		t.Fatal(err)
 	}
