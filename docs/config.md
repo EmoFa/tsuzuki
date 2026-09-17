@@ -85,6 +85,17 @@ otherwise from [AniSkip](https://aniskip.com). Filler information comes from
 | `skip.filler_episodes` | `false` | Pass over filler episodes when tsuzuki chooses the episode (`continue` and autoplay). An episode you pick yourself always plays. Mixed canon/filler episodes are never skipped. |
 | `skip.recap_episodes` | `false` | Pass over whole recap episodes the same way. |
 
+## `[subtitles]`
+
+| Key | Default | Description |
+|---|---|---|
+| `subtitles.languages` | `["en"]` | Preferred subtitle languages, most preferred first, as two- or three-letter codes (`"en"`, `"es"`, `"pt"`, `"de"`, …). The first track in one of them is selected; if none is offered, the first available track is. Machine-translated tracks come last. |
+| `subtitles.show` | `true` | Show subtitles when an episode starts. `false` still loads them, hidden until you press <kbd>v</kbd> in mpv. |
+
+A show can have its own subtitle settings: press <kbd>s</kbd> on its details screen. For a single
+watch, `tsuzuki watch <id> --subs es,en` or `--subs off` overrides both. Animepahe's streams have
+English subtitles burned into the video, so these settings can't change them.
+
 ## `[discord]`
 
 | Key | Default | Description |

@@ -179,20 +179,3 @@ func decode(t *testing.T, s string, v any) {
 		t.Fatal(err)
 	}
 }
-
-func TestSortSubtitles(t *testing.T) {
-	subs := []domain.Subtitle{
-		{Label: "Arabic", Lang: "ar"},
-		{Label: "English (AI)", Lang: "en"},
-		{Label: "English", Lang: "en"},
-		{Label: "Spanish", Lang: "es"},
-	}
-	sortSubtitles(subs)
-	var got []string
-	for _, s := range subs {
-		got = append(got, s.Label)
-	}
-	if strings.Join(got, "|") != "English|Arabic|Spanish|English (AI)" {
-		t.Fatalf("order = %v", got)
-	}
-}

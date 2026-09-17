@@ -201,7 +201,7 @@ func playDebug(ctx context.Context, app *App, s domain.Stream, title string, sta
 		}
 		proxy = p
 	}
-	req, err := session.PlayerRequest(s, proxy)
+	req, err := session.PlayerRequest(s, proxy, app.subtitlePrefs())
 	if err != nil {
 		return err
 	}

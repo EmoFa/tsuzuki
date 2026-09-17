@@ -28,6 +28,7 @@ type Config struct {
 	Browser   Browser   `toml:"browser"`
 	Tracking  Tracking  `toml:"tracking"`
 	Skip      Skip      `toml:"skip"`
+	Subtitles Subtitles `toml:"subtitles"`
 	Discord   Discord   `toml:"discord"`
 	UI        UI        `toml:"ui"`
 }
@@ -67,6 +68,11 @@ type Skip struct {
 	Recap          string `toml:"recap"`
 	FillerEpisodes bool   `toml:"filler_episodes"`
 	RecapEpisodes  bool   `toml:"recap_episodes"`
+}
+
+type Subtitles struct {
+	Languages []string `toml:"languages"`
+	Show      bool     `toml:"show"`
 }
 
 type Discord struct {
@@ -124,8 +130,9 @@ func Default() Config {
 			Ending:  "auto",
 			Recap:   "prompt",
 		},
-		Discord: Discord{Enabled: true, ShowCover: true},
-		UI:      UI{Theme: "default"},
+		Subtitles: Subtitles{Languages: []string{"en"}, Show: true},
+		Discord:   Discord{Enabled: true, ShowCover: true},
+		UI:        UI{Theme: "default"},
 	}
 }
 
@@ -208,10 +215,28 @@ func (c *Config) Validate() error {
 	oneOf("skip.ending", c.Skip.Ending, SkipActions)
 	oneOf("skip.recap", c.Skip.Recap, SkipActions)
 	oneOf("ui.theme", c.UI.Theme, Themes)
+	for _, lang := range c.Subtitles.Languages {
+		if !IsLanguageCode(lang) {
+			errs = append(errs, fmt.Errorf("subtitles.languages: %q is not a language code like \"en\" or \"pt\"", lang))
+		}
+	}
 
 	if id := c.Discord.ClientID; id != "" && strings.Trim(id, "0123456789") != "" {
 		errs = append(errs, fmt.Errorf("discord.client_id: %q must be a numeric Discord application ID", id))
 	}
 
 	return errors.Join(errs...)
+}
+
+// IsLanguageCode reports whether s looks like an ISO 639 code: 2 or 3 lowercase letters.
+func IsLanguageCode(s string) bool {
+	if len(s) < 2 || len(s) > 3 {
+		return false
+	}
+	for _, r := range s {
+		if r < 'a' || r > 'z' {
+			return false
+		}
+	}
+	return true
 }

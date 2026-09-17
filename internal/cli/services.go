@@ -221,6 +221,7 @@ func (a *App) Session(ctx context.Context, onStatus func(session.Status)) (*sess
 			},
 			SkipFillerEpisodes: cfg.Skip.FillerEpisodes,
 			SkipRecapEpisodes:  cfg.Skip.RecapEpisodes,
+			Subtitles:          a.subtitlePrefs(),
 		},
 		Providers: reg,
 		Resolver:  mapper,
@@ -233,6 +234,7 @@ func (a *App) Session(ctx context.Context, onStatus func(session.Status)) (*sess
 		OnWatched:    a.trackWatched,
 		SkipRanges:   aniskip.ranges,
 		EpisodeKinds: a.FillerList(client, st).Kinds,
+		ShowPrefs:    st.ShowPrefs,
 		OnStatus:     a.withPresence(onStatus),
 	}), nil
 }
@@ -323,4 +325,8 @@ func (a *App) notify(msg string) {
 		return
 	}
 	fmt.Fprintln(os.Stderr, "»", msg)
+}
+
+func (a *App) subtitlePrefs() domain.SubtitlePrefs {
+	return domain.SubtitlePrefs{Languages: a.Config.Subtitles.Languages, Show: a.Config.Subtitles.Show}
 }

@@ -59,8 +59,8 @@ func TestDecodeErrors(t *testing.T) {
 		{"bad duration", "[providers]\nhealth_check_timeout = \"soon\"\n", []string{"line 2"}},
 		{
 			"invalid values reported together",
-			"[general]\nmode = \"raw\"\nwatched_threshold = 1.5\n[providers]\norder = [\"allanime\", \"allanime\", \"nyaa\"]\n[discord]\nclient_id = \"tsuzuki\"\n",
-			[]string{"general.mode", "watched_threshold", "listed twice", `"nyaa"`, "discord.client_id"},
+			"[general]\nmode = \"raw\"\nwatched_threshold = 1.5\n[providers]\norder = [\"allanime\", \"allanime\", \"nyaa\"]\n[discord]\nclient_id = \"tsuzuki\"\n[subtitles]\nlanguages = [\"English\"]\n",
+			[]string{"general.mode", "watched_threshold", "listed twice", `"nyaa"`, "discord.client_id", "subtitles.languages"},
 		},
 	}
 	for _, tt := range tests {

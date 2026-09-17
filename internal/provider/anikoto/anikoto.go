@@ -284,7 +284,6 @@ func (p *Provider) resolveServer(ctx context.Context, srv server, mode domain.Mo
 	for _, t := range mp.Tracks {
 		subs = append(subs, domain.Subtitle{URL: t.File, Lang: subtitleLang(t.Label), Label: t.Label})
 	}
-	sortSubtitles(subs)
 	var skips []domain.SkipRange
 	for kind, r := range map[domain.SkipKind]extractor.MegaplaySkip{domain.SkipOpening: mp.Intro, domain.SkipEnding: mp.Outro} {
 		if r.End > r.Start {
@@ -313,21 +312,6 @@ func (p *Provider) resolveServer(ctx context.Context, srv server, mode domain.Mo
 		})
 	}
 	return streams, nil
-}
-
-// sortSubtitles orders tracks for players, which select the first: English,
-// then other human translations, then machine ("(AI)") translations.
-func sortSubtitles(subs []domain.Subtitle) {
-	rank := func(s domain.Subtitle) int {
-		switch {
-		case strings.Contains(s.Label, "(AI)"):
-			return 2
-		case s.Lang == "en":
-			return 0
-		}
-		return 1
-	}
-	slices.SortStableFunc(subs, func(a, b domain.Subtitle) int { return rank(a) - rank(b) })
 }
 
 // subtitleLang maps megaplay's track labels to language codes.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -26,6 +27,7 @@ type fakeProvider struct {
 	streamsErr error
 	skips      []domain.SkipRange
 	recaps     map[int]bool
+	subs       []domain.Subtitle
 }
 
 func (f *fakeProvider) Name() string { return f.name }
@@ -44,8 +46,8 @@ func (f *fakeProvider) Streams(_ context.Context, show string, ep domain.Episode
 		return nil, f.streamsErr
 	}
 	return []domain.Stream{
-		{URL: "https://" + f.name + "/720.m3u8", Height: 720, Audio: mode, Skips: f.skips},
-		{URL: "https://" + f.name + "/1080.m3u8", Height: 1080, Audio: mode, Skips: f.skips},
+		{URL: "https://" + f.name + "/720.m3u8", Height: 720, Audio: mode, Skips: f.skips, Subtitles: f.subs},
+		{URL: "https://" + f.name + "/1080.m3u8", Height: 1080, Audio: mode, Skips: f.skips, Subtitles: f.subs},
 	}, nil
 }
 
@@ -287,16 +289,17 @@ func TestPlayerRequest(t *testing.T) {
 		URL: "https://cdn/x.m3u8", Headers: map[string]string{"Origin": "o"}, AudioLang: "en",
 		Subtitles: []domain.Subtitle{{URL: "https://cdn/sub.ass"}},
 	}
-	direct, err := PlayerRequest(s, nil)
-	if err != nil || direct.URL != s.URL || direct.Headers["Origin"] != "o" || direct.Subtitles[0] != "https://cdn/sub.ass" {
+	subs := domain.SubtitlePrefs{Show: true}
+	direct, err := PlayerRequest(s, nil, subs)
+	if err != nil || direct.URL != s.URL || direct.Headers["Origin"] != "o" || direct.Subtitles[0] != "https://cdn/sub.ass" || direct.HideSubs {
 		t.Fatalf("direct = %+v err=%v", direct, err)
 	}
 
 	s.NeedsProxy = true
-	if _, err := PlayerRequest(s, nil); err == nil {
+	if _, err := PlayerRequest(s, nil, subs); err == nil {
 		t.Fatal("expected error without proxy")
 	}
-	proxied, err := PlayerRequest(s, fakeProxy{})
+	proxied, err := PlayerRequest(s, fakeProxy{}, subs)
 	if err != nil || proxied.URL != "http://proxy/https://cdn/x.m3u8" || proxied.Headers != nil ||
 		proxied.Subtitles[0] != "http://proxy/https://cdn/sub.ass" || proxied.AudioLang != "en" {
 		t.Fatalf("proxied = %+v err=%v", proxied, err)
@@ -612,5 +615,48 @@ func TestExplicitFillerEpisodePlaysButContinueSkipsIt(t *testing.T) {
 	}
 	if !strings.Contains(h.requests[0].Title, "Episode 3") {
 		t.Fatalf("continue landed on filler: %+v", h.requests)
+	}
+}
+
+func TestSubtitlePreferences(t *testing.T) {
+	p := &fakeProvider{name: "senshi", eps: 3, subs: []domain.Subtitle{
+		{URL: "https://s/en.vtt", Lang: "en"}, {URL: "https://s/de.vtt", Lang: "de"}, {URL: "https://s/es.vtt", Lang: "es"},
+	}}
+	watchOnce := func(configure func(h *harness), req Request) player.Request {
+		t.Helper()
+		h := newHarness(t, []provider.Provider{p}, played(time.Minute, 24*time.Minute, "quit"))
+		h.sess.Settings.Subtitles = domain.SubtitlePrefs{Languages: []string{"de"}, Show: true}
+		h.sess.ShowPrefs = h.store.ShowPrefs
+		if configure != nil {
+			configure(h)
+		}
+		req.Media, req.Episode, req.Mode = media, 1, domain.Sub
+		if err := h.sess.Watch(context.Background(), req); err != nil {
+			t.Fatal(err)
+		}
+		return h.requests[0]
+	}
+
+	// The config.
+	r := watchOnce(nil, Request{})
+	if r.Subtitles[0] != "https://s/de.vtt" || !slices.Equal(r.SubLangs, []string{"de"}) || r.HideSubs {
+		t.Errorf("config: %+v", r)
+	}
+
+	// The show's languages win; its unset visibility inherits.
+	r = watchOnce(func(h *harness) {
+		h.store.SaveShowPrefs(context.Background(), store.ShowPrefs{MediaID: media.ID, SubLanguages: []string{"es", "en"}})
+	}, Request{})
+	if r.Subtitles[0] != "https://s/es.vtt" || r.Subtitles[1] != "https://s/en.vtt" || r.HideSubs {
+		t.Errorf("show prefs: %+v", r)
+	}
+
+	// A request override wins over both.
+	r = watchOnce(func(h *harness) {
+		hidden := false
+		h.store.SaveShowPrefs(context.Background(), store.ShowPrefs{MediaID: media.ID, SubLanguages: []string{"es"}, SubShow: &hidden})
+	}, Request{Subtitles: &domain.SubtitlePrefs{Languages: []string{"en"}, Show: false}})
+	if r.Subtitles[0] != "https://s/en.vtt" || !r.HideSubs {
+		t.Errorf("request override: %+v", r)
 	}
 }

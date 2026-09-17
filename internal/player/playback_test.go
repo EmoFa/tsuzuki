@@ -214,6 +214,8 @@ func TestBuildArgs(t *testing.T) {
 		Start:     83500 * time.Millisecond,
 		Headers:   map[string]string{"Referer": "https://a/", "Origin": "https://a,b"},
 		Subtitles: []string{"http://x/sub_en.ass"},
+		SubLangs:  []string{"es", "en"},
+		HideSubs:  true,
 		AudioLang: "ja",
 	}, "/run/tsuzuki.sock", Options{ExtraArgs: []string{"--fullscreen"}})
 
@@ -225,6 +227,8 @@ func TestBuildArgs(t *testing.T) {
 		"--http-header-fields-append=Origin: https://a,b",
 		"--http-header-fields-append=Referer: https://a/",
 		"--sub-files-append=http://x/sub_en.ass",
+		"--slang=es,en",
+		"--sub-visibility=no",
 		"--alang=ja",
 		"--fullscreen",
 		"--",

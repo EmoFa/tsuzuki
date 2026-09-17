@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/EmoFa/tsuzuki/internal/procfs"
@@ -34,6 +35,8 @@ type Request struct {
 	Start     time.Duration
 	Headers   map[string]string // sent with every HTTP request mpv makes
 	Subtitles []string          // subtitle file URLs, first is selected
+	SubLangs  []string          // preferred subtitle languages, for tracks inside the stream
+	HideSubs  bool              // load subtitles but start with them hidden
 	AudioLang string            // preferred audio track language
 }
 
@@ -126,6 +129,12 @@ func buildArgs(req Request, ipcAddr string, opts Options) []string {
 	}
 	for _, s := range req.Subtitles {
 		args = append(args, "--sub-files-append="+s)
+	}
+	if len(req.SubLangs) > 0 {
+		args = append(args, "--slang="+strings.Join(req.SubLangs, ","))
+	}
+	if req.HideSubs {
+		args = append(args, "--sub-visibility=no")
 	}
 	if req.AudioLang != "" {
 		args = append(args, "--alang="+req.AudioLang)

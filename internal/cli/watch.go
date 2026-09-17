@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/config"
 	"github.com/EmoFa/tsuzuki/internal/domain"
 	"github.com/EmoFa/tsuzuki/internal/session"
 )
@@ -53,7 +54,7 @@ func newSearchCmd(app *App) *cobra.Command {
 }
 
 func newWatchCmd(app *App) *cobra.Command {
-	var mode, prefer string
+	var mode, prefer, subs string
 	cmd := &cobra.Command{
 		Use:   "watch <anilist-id> [episode]",
 		Short: "Watch an anime, resuming where you left off",
@@ -73,16 +74,21 @@ func newWatchCmd(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return watch(cmd.Context(), app, id, episode, m, prefer)
+			subPrefs, err := subsFlag(app, subs)
+			if err != nil {
+				return err
+			}
+			return watch(cmd.Context(), app, id, episode, m, prefer, subPrefs)
 		},
 	}
 	cmd.Flags().StringVar(&mode, "mode", "", "sub or dub (default from config)")
 	cmd.Flags().StringVar(&prefer, "provider", "", "try this provider first")
+	cmd.Flags().StringVar(&subs, "subs", "", `subtitle languages for this watch, e.g. "es,en", or "off" to start hidden`)
 	return cmd
 }
 
 func newContinueCmd(app *App) *cobra.Command {
-	var mode string
+	var mode, subs string
 	cmd := &cobra.Command{
 		Use:   "continue",
 		Short: "Continue the anime you watched most recently",
@@ -106,10 +112,15 @@ func newContinueCmd(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return watch(ctx, app, last.MediaID, 0, m, last.Provider)
+			subPrefs, err := subsFlag(app, subs)
+			if err != nil {
+				return err
+			}
+			return watch(ctx, app, last.MediaID, 0, m, last.Provider, subPrefs)
 		},
 	}
 	cmd.Flags().StringVar(&mode, "mode", "", "sub or dub (default: the mode you used last)")
+	cmd.Flags().StringVar(&subs, "subs", "", `subtitle languages for this watch, e.g. "es,en", or "off" to start hidden`)
 	return cmd
 }
 
@@ -158,7 +169,7 @@ func newHistoryCmd(app *App) *cobra.Command {
 }
 
 // watch looks up the media and runs a session with terminal status output.
-func watch(ctx context.Context, app *App, mediaID int, episode float64, mode domain.Mode, prefer string) error {
+func watch(ctx context.Context, app *App, mediaID int, episode float64, mode domain.Mode, prefer string, subs *domain.SubtitlePrefs) error {
 	al, err := app.AniList(ctx)
 	if err != nil {
 		return err
@@ -198,12 +209,34 @@ func watch(ctx context.Context, app *App, mediaID int, episode float64, mode dom
 	if err != nil {
 		return err
 	}
-	err = sess.Watch(ctx, session.Request{Media: media, Episode: episode, Mode: mode, Provider: prefer})
+	err = sess.Watch(ctx, session.Request{Media: media, Episode: episode, Mode: mode, Provider: prefer, Subtitles: subs})
 	printer.endLine()
 	if ctx.Err() != nil {
 		return nil // interrupted
 	}
 	return err
+}
+
+// subsFlag reads --subs: "off" hides subtitles, a comma-separated list sets the
+// languages (and shows them). Empty uses the show's or config's settings.
+func subsFlag(app *App, flag string) (*domain.SubtitlePrefs, error) {
+	switch flag = strings.TrimSpace(strings.ToLower(flag)); flag {
+	case "":
+		return nil, nil
+	case "off", "none", "hide":
+		p := app.subtitlePrefs()
+		p.Show = false
+		return &p, nil
+	}
+	p := domain.SubtitlePrefs{Show: true}
+	for _, lang := range strings.Split(flag, ",") {
+		lang = strings.TrimSpace(lang)
+		if !config.IsLanguageCode(lang) {
+			return nil, fmt.Errorf("--subs: %q is not a language code like \"en\" (or use \"off\")", lang)
+		}
+		p.Languages = append(p.Languages, lang)
+	}
+	return &p, nil
 }
 
 func modeFlag(app *App, flag, fallback string) (domain.Mode, error) {

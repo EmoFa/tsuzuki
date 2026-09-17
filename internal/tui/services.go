@@ -38,6 +38,11 @@ type Services interface {
 	Sync(ctx context.Context) (string, error)
 	// EpisodeKinds classifies episodes (canon, filler, ...); nil when unknown.
 	EpisodeKinds(ctx context.Context, media anilist.Media) (map[int]skip.EpisodeKind, error)
+
+	// ShowPrefs returns a show's own settings, or nil when it uses the config.
+	ShowPrefs(ctx context.Context, mediaID int) (*store.ShowPrefs, error)
+	SaveShowPrefs(ctx context.Context, p store.ShowPrefs) error
+	DeleteShowPrefs(ctx context.Context, mediaID int) error
 }
 
 // Account describes the AniList login.

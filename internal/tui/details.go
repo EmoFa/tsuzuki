@@ -7,10 +7,12 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/config"
 	"github.com/EmoFa/tsuzuki/internal/domain"
 	"github.com/EmoFa/tsuzuki/internal/session"
 	"github.com/EmoFa/tsuzuki/internal/skip"
@@ -28,6 +30,15 @@ type detailsEntryMsg struct {
 
 type detailsKindsMsg struct {
 	kinds map[int]skip.EpisodeKind
+}
+
+type detailsPrefsMsg struct {
+	prefs *store.ShowPrefs
+}
+
+type detailsPrefsSavedMsg struct {
+	note string
+	err  error
 }
 
 type detailsStatusMsg struct {
@@ -61,6 +72,11 @@ type detailsScreen struct {
 	entry         *store.ListEntry
 	pickingStatus bool
 	kinds         map[int]skip.EpisodeKind
+
+	prefs       *store.ShowPrefs // nil: the show uses the config
+	editingSubs bool
+	subsInput   textinput.Model
+	subsShow    bool
 }
 
 func newDetails(ctx context.Context, svc Services, media anilist.Media, mode domain.Mode) *detailsScreen {
@@ -72,7 +88,7 @@ func newDetails(ctx context.Context, svc Services, media anilist.Media, mode dom
 func (d *detailsScreen) Title() string { return truncate(d.media.DisplayTitle(), 40) }
 
 func (d *detailsScreen) Init() tea.Cmd {
-	cmds := []tea.Cmd{d.loadProgress(), d.loadEntry(), d.loadKinds()}
+	cmds := []tea.Cmd{d.loadProgress(), d.loadEntry(), d.loadKinds(), d.loadPrefs()}
 	if d.media.AiredEpisodes() == 0 {
 		cmds = append(cmds, d.loadEpisodes())
 	}
@@ -89,6 +105,70 @@ func (d *detailsScreen) loadKinds() tea.Cmd {
 			return nil
 		}
 		return detailsKindsMsg{kinds}
+	}
+}
+
+func (d *detailsScreen) loadPrefs() tea.Cmd {
+	ctx, svc, id := d.ctx, d.svc, d.media.ID
+	return func() tea.Msg {
+		p, err := svc.ShowPrefs(ctx, id)
+		if err != nil {
+			return nil
+		}
+		return detailsPrefsMsg{p}
+	}
+}
+
+// subtitlePrefs is what playback will use for this show.
+func (d *detailsScreen) subtitlePrefs() (langs []string, show, own bool) {
+	c := d.svc.Settings().Config.Subtitles
+	langs, show = c.Languages, c.Show
+	if d.prefs != nil {
+		if d.prefs.SubLanguages != nil {
+			langs, own = d.prefs.SubLanguages, true
+		}
+		if d.prefs.SubShow != nil {
+			show, own = *d.prefs.SubShow, true
+		}
+	}
+	return langs, show, own
+}
+
+func (d *detailsScreen) startEditingSubs() tea.Cmd {
+	langs, show, _ := d.subtitlePrefs()
+	in := textinput.New()
+	in.Prompt = ""
+	in.Placeholder = "en, es"
+	in.CharLimit = 60
+	in.SetValue(strings.Join(langs, ", "))
+	d.subsInput, d.subsShow, d.editingSubs = in, show, true
+	return d.subsInput.Focus()
+}
+
+// saveSubs stores the edited settings for this show, or with reset, removes
+// them so the show follows the config again.
+func (d *detailsScreen) saveSubs(reset bool) tea.Cmd {
+	ctx, svc, id := d.ctx, d.svc, d.media.ID
+	if reset {
+		return func() tea.Msg {
+			return detailsPrefsSavedMsg{"Subtitles: using your defaults", svc.DeleteShowPrefs(ctx, id)}
+		}
+	}
+	langs := []string{}
+	for _, l := range strings.Split(d.subsInput.Value(), ",") {
+		l = strings.ToLower(strings.TrimSpace(l))
+		if l == "" {
+			continue
+		}
+		if !config.IsLanguageCode(l) {
+			return toast(fmt.Sprintf("%q isn't a language code like en or es", l), true)
+		}
+		langs = append(langs, l)
+	}
+	show := d.subsShow
+	p := store.ShowPrefs{MediaID: id, SubLanguages: langs, SubShow: &show}
+	return func() tea.Msg {
+		return detailsPrefsSavedMsg{"Subtitles saved for this show", svc.SaveShowPrefs(ctx, p)}
 	}
 }
 
@@ -125,18 +205,28 @@ var (
 	keyContinue = key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "continue"))
 	keyMode     = key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "sub/dub"))
 	keyStatus   = key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "list status"))
+	keySubs     = key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "subtitles"))
 )
 
 func (d *detailsScreen) Help() []key.Binding {
+	if d.editingSubs {
+		return []key.Binding{
+			key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "save")),
+			key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "show/hide")),
+			key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "use defaults")),
+			key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+		}
+	}
 	if d.pickingStatus {
 		return []key.Binding{key.NewBinding(key.WithKeys("1"), key.WithHelp("1-6", "choose status")),
 			key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel"))}
 	}
-	return []key.Binding{keyPlay, keyContinue, keyMode, keyStatus}
+	return []key.Binding{keyPlay, keyContinue, keyMode, keyStatus, keySubs}
 }
 
-// CapturesInput keeps esc for cancelling the status picker.
-func (d *detailsScreen) CapturesInput() bool { return d.pickingStatus }
+// CapturesInput keeps esc for cancelling the status picker and typed text for
+// the subtitle editor.
+func (d *detailsScreen) CapturesInput() bool { return d.pickingStatus || d.editingSubs }
 
 func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -163,6 +253,15 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 	case detailsKindsMsg:
 		d.kinds = msg.kinds
 
+	case detailsPrefsMsg:
+		d.prefs = msg.prefs
+
+	case detailsPrefsSavedMsg:
+		if msg.err != nil {
+			return d, toast("Couldn't save subtitles: "+firstLine(msg.err.Error()), true)
+		}
+		return d, tea.Batch(toast(msg.note, false), d.loadPrefs())
+
 	case detailsStatusMsg:
 		if msg.err != nil {
 			return d, toast("Couldn't change list status: "+firstLine(msg.err.Error()), true)
@@ -181,6 +280,25 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 		d.setNumbers()
 
 	case tea.KeyPressMsg:
+		if d.editingSubs {
+			switch msg.String() {
+			case "esc":
+				d.editingSubs = false
+				return d, nil
+			case "enter":
+				d.editingSubs = false
+				return d, d.saveSubs(false)
+			case "ctrl+r":
+				d.editingSubs = false
+				return d, d.saveSubs(true)
+			case "tab":
+				d.subsShow = !d.subsShow
+				return d, nil
+			}
+			var cmd tea.Cmd
+			d.subsInput, cmd = d.subsInput.Update(msg)
+			return d, cmd
+		}
 		if d.pickingStatus {
 			d.pickingStatus = false
 			if i := strings.IndexAny("123456", msg.String()); len(msg.String()) == 1 && i >= 0 {
@@ -192,6 +310,8 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 		case key.Matches(msg, keyStatus):
 			d.pickingStatus = true
 			return d, nil
+		case key.Matches(msg, keySubs):
+			return d, d.startEditingSubs()
 		case key.Matches(msg, keyPlay):
 			if len(d.numbers) == 0 {
 				return d, nil
@@ -289,6 +409,7 @@ func (d *detailsScreen) View(width, height int) string {
 	default:
 		b.WriteString(styleMuted.Render("Not on your list · l to add") + "\n")
 	}
+	b.WriteString(d.subtitlesLine(width) + "\n")
 	if desc := plainDescription(m.Description); desc != "" {
 		// Leave room for clampLines' ellipsis so it never wraps.
 		wrapped := lipgloss.NewStyle().Width(min(width, 100) - 2).Render(desc)
@@ -361,4 +482,24 @@ func (d *detailsScreen) episodeRow(i int, next float64, width int) string {
 		row += "  " + styleMuted.Render(detail)
 	}
 	return row
+}
+
+func (d *detailsScreen) subtitlesLine(width int) string {
+	if d.editingSubs {
+		state := "shown"
+		if !d.subsShow {
+			state = "hidden"
+		}
+		d.subsInput.SetWidth(max(min(width-40, 30), 8))
+		return styleWarn.Render("Subtitles for this show: ") + d.subsInput.View() + styleMuted.Render("  · "+state)
+	}
+	langs, show, own := d.subtitlePrefs()
+	text := "Subtitles: " + valueOr(strings.Join(langs, ", "), "any language")
+	if !show {
+		text += " · hidden"
+	}
+	if own {
+		text += " (this show)"
+	}
+	return styleMuted.Render(truncate(text+" · s to change", width))
 }

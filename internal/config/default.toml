@@ -52,6 +52,14 @@ recap = "prompt"
 filler_episodes = false
 recap_episodes = false
 
+[subtitles]
+# Preferred subtitle languages, most preferred first, as codes like "en", "es",
+# "pt". The first track in one of these languages is selected; otherwise the
+# first available track. A show can override this from its details screen.
+languages = ["en"]
+# Show subtitles when an episode starts. false loads them hidden (press v in mpv).
+show = true
+
 [discord]
 # Show what you're watching in Discord.
 enabled = true

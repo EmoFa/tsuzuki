@@ -165,3 +165,15 @@ func (s *tuiServices) Settings() tui.Settings {
 		CacheDir:   s.app.Paths.CacheDir,
 	}
 }
+
+func (s *tuiServices) ShowPrefs(ctx context.Context, mediaID int) (*store.ShowPrefs, error) {
+	return s.store.ShowPrefs(ctx, mediaID)
+}
+
+func (s *tuiServices) SaveShowPrefs(ctx context.Context, p store.ShowPrefs) error {
+	return s.store.SaveShowPrefs(ctx, p)
+}
+
+func (s *tuiServices) DeleteShowPrefs(ctx context.Context, mediaID int) error {
+	return s.store.DeleteShowPrefs(ctx, mediaID)
+}

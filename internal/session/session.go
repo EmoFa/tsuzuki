@@ -56,6 +56,9 @@ type Settings struct {
 	// (autoplay and continue). Episodes picked explicitly always play.
 	SkipFillerEpisodes bool
 	SkipRecapEpisodes  bool
+	// Subtitles are the configured subtitle preferences; a show's own
+	// (Deps.ShowPrefs) and a request's override them.
+	Subtitles domain.SubtitlePrefs
 }
 
 // Resolver maps AniList entries to provider shows (mapping.Mapper).
@@ -105,6 +108,8 @@ type Deps struct {
 	// SkipRanges looks up skip ranges when the stream has none (AniSkip).
 	// length is the episode duration. Nil disables the lookup.
 	SkipRanges func(ctx context.Context, media anilist.Media, episode float64, length time.Duration) ([]domain.SkipRange, error)
+	// ShowPrefs returns a show's saved settings (nil when none). May be nil.
+	ShowPrefs func(ctx context.Context, mediaID int) (*store.ShowPrefs, error)
 	// OnStatus receives updates for the UI. May be nil.
 	OnStatus func(Status)
 }
@@ -161,6 +166,8 @@ type Request struct {
 	// SkipProviders are not tried for the first episode (e.g. the user asked
 	// for a different source).
 	SkipProviders []string
+	// Subtitles, if set, replaces the configured and per-show preferences.
+	Subtitles *domain.SubtitlePrefs
 }
 
 // Watch plays req and, with autoplay, the following episodes until the user
@@ -178,6 +185,7 @@ func (s *Session) Watch(ctx context.Context, req Request) error {
 		prefer = s.lastProvider(ctx, req.Media.ID)
 	}
 	skipProviders := slices.Clone(req.SkipProviders)
+	subs := s.subtitlePrefs(ctx, req)
 	// failures remembers why providers were abandoned mid-episode, so the final
 	// error explains them.
 	var failures []error
@@ -199,7 +207,7 @@ func (s *Session) Watch(ctx context.Context, req Request) error {
 			ep, prefer, skipProviders, failures = next.Number, res.provider, nil, nil
 			continue
 		}
-		state, err := s.play(ctx, req.Media, res, req.Mode)
+		state, err := s.play(ctx, req.Media, res, req.Mode, subs)
 		if errors.Is(err, errPlaybackFailed) && ctx.Err() == nil {
 			slog.Info("playback failed; trying next provider", "provider", res.provider, "episode", ep, "err", err)
 			s.status(Status{Kind: StatusProviderFailed, Media: req.Media, Episode: ep, Provider: res.provider, Err: err})
@@ -448,7 +456,32 @@ func durationOr(d, fallback time.Duration) time.Duration {
 	return fallback
 }
 
-func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, mode domain.Mode) (player.State, error) {
+// subtitlePrefs combines the config, the show's saved settings and the request.
+func (s *Session) subtitlePrefs(ctx context.Context, req Request) domain.SubtitlePrefs {
+	if req.Subtitles != nil {
+		return *req.Subtitles
+	}
+	prefs := s.Settings.Subtitles
+	if s.ShowPrefs == nil {
+		return prefs
+	}
+	show, err := s.ShowPrefs(ctx, req.Media.ID)
+	if err != nil {
+		slog.Warn("loading show settings", "media", req.Media.ID, "err", err)
+		return prefs
+	}
+	if show != nil {
+		if show.SubLanguages != nil {
+			prefs.Languages = show.SubLanguages
+		}
+		if show.SubShow != nil {
+			prefs.Show = *show.SubShow
+		}
+	}
+	return prefs
+}
+
+func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, mode domain.Mode, subs domain.SubtitlePrefs) (player.State, error) {
 	var proxy Proxy
 	if res.stream.NeedsProxy {
 		var err error
@@ -456,7 +489,7 @@ func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, m
 			return player.State{}, err
 		}
 	}
-	req, err := PlayerRequest(res.stream, proxy)
+	req, err := PlayerRequest(res.stream, proxy, subs)
 	if err != nil {
 		return player.State{}, err
 	}
@@ -667,9 +700,9 @@ func nextEpisode(eps []domain.Episode, number float64) (domain.Episode, bool) {
 }
 
 // PlayerRequest turns a stream into what mpv needs, routing it through proxy
-// when required.
-func PlayerRequest(s domain.Stream, proxy Proxy) (player.Request, error) {
-	req := player.Request{URL: s.URL, Headers: s.Headers, AudioLang: s.AudioLang}
+// when required, with subtitles ordered by subs.
+func PlayerRequest(s domain.Stream, proxy Proxy, subs domain.SubtitlePrefs) (player.Request, error) {
+	req := player.Request{URL: s.URL, Headers: s.Headers, AudioLang: s.AudioLang, SubLangs: subs.Languages, HideSubs: !subs.Show}
 	subURL := func(u string) string { return u }
 	if s.NeedsProxy {
 		if proxy == nil {
@@ -679,7 +712,7 @@ func PlayerRequest(s domain.Stream, proxy Proxy) (player.Request, error) {
 		req.Headers = nil // the proxy adds them
 		subURL = func(u string) string { return proxy.URL(u, s.Headers) }
 	}
-	for _, sub := range s.Subtitles {
+	for _, sub := range domain.SortSubtitles(s.Subtitles, subs.Languages) {
 		req.Subtitles = append(req.Subtitles, subURL(sub.URL))
 	}
 	return req, nil

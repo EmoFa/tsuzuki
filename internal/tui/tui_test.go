@@ -32,6 +32,7 @@ type fakeServices struct {
 	progress []store.Progress
 	watches  []session.Request
 	entries  []store.ListEntry
+	prefs    map[int]store.ShowPrefs
 }
 
 func (f *fakeServices) Search(context.Context, string) ([]anilist.Media, error) {
@@ -118,6 +119,32 @@ func (f *fakeServices) Login(context.Context) (string, error) {
 	return "", errors.New("unused")
 }
 func (f *fakeServices) Sync(context.Context) (string, error) { return "", nil }
+
+func (f *fakeServices) ShowPrefs(_ context.Context, id int) (*store.ShowPrefs, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if p, ok := f.prefs[id]; ok {
+		return &p, nil
+	}
+	return nil, nil
+}
+
+func (f *fakeServices) SaveShowPrefs(_ context.Context, p store.ShowPrefs) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.prefs == nil {
+		f.prefs = map[int]store.ShowPrefs{}
+	}
+	f.prefs[p.MediaID] = p
+	return nil
+}
+
+func (f *fakeServices) DeleteShowPrefs(_ context.Context, id int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.prefs, id)
+	return nil
+}
 
 func (f *fakeServices) Settings() Settings {
 	return Settings{Config: config.Default(), ConfigPath: "/cfg/config.toml", DataDir: "/data", CacheDir: "/cache"}
@@ -389,5 +416,58 @@ func TestHomeListTabsAndDetailsStatusPicker(t *testing.T) {
 	}
 	if svc.entries[len(svc.entries)-1].Status != "PLANNING" {
 		t.Fatalf("entries = %+v", svc.entries)
+	}
+}
+
+func TestDetailsSubtitleEditor(t *testing.T) {
+	svc := &fakeServices{}
+	d := newDetails(context.Background(), svc, frieren2, domain.Sub)
+	var apply func(tea.Cmd)
+	apply = func(cmd tea.Cmd) {
+		for _, msg := range runBatch(cmd) {
+			if msg != nil {
+				_, next := d.Update(msg)
+				apply(next)
+			}
+		}
+	}
+	if view := d.View(100, 30); !strings.Contains(view, "Subtitles: en · s to change") {
+		t.Fatalf("default line missing:\n%s", view)
+	}
+
+	_, cmd := d.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	apply(cmd)
+	if !d.editingSubs || !d.CapturesInput() {
+		t.Fatal("s didn't open the editor")
+	}
+	d.subsInput.SetValue("ES, en")
+	d.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	_, cmd = d.Update(press("enter"))
+	apply(cmd)
+
+	p := svc.prefs[frieren2.ID]
+	if strings.Join(p.SubLanguages, ",") != "es,en" || p.SubShow == nil || *p.SubShow {
+		t.Fatalf("saved %+v", p)
+	}
+	if view := d.View(100, 30); !strings.Contains(view, "Subtitles: es, en · hidden (this show)") {
+		t.Fatalf("override line missing:\n%s", view)
+	}
+
+	_, cmd = d.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	apply(cmd)
+	_, cmd = d.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	apply(cmd)
+	if _, ok := svc.prefs[frieren2.ID]; ok {
+		t.Fatal("ctrl+r didn't reset to defaults")
+	}
+
+	// Invalid codes aren't saved.
+	_, cmd = d.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	apply(cmd)
+	d.subsInput.SetValue("english")
+	_, cmd = d.Update(press("enter"))
+	apply(cmd)
+	if _, ok := svc.prefs[frieren2.ID]; ok {
+		t.Fatal("saved an invalid language")
 	}
 }

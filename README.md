@@ -99,6 +99,7 @@ on your machine.
 | | <kbd>c</kbd> | Continue from the next unwatched episode |
 | | <kbd>m</kbd> | Switch between sub and dub |
 | | <kbd>l</kbd> | Change the list status |
+| | <kbd>s</kbd> | Subtitle languages for this show |
 | Now playing | <kbd>n</kbd> / <kbd>p</kbd> | Next / previous episode |
 | | <kbd>f</kbd> | Try another provider |
 | | <kbd>x</kbd> | Stop |
@@ -114,6 +115,7 @@ The UI isn't required: every feature has a command.
 tsuzuki search frieren             # find the AniList ID
 tsuzuki watch 154587               # resume, or start from episode 1
 tsuzuki watch 154587 5 --mode dub  # a specific episode
+tsuzuki watch 154587 --subs es,en  # subtitle languages for this watch ("off" hides them)
 tsuzuki continue                   # the show you watched last
 tsuzuki history                    # recently watched
 tsuzuki list watching              # your list (watching, planning, completed, ...)
