@@ -25,7 +25,9 @@ tsuzuki doesn't host anything: it finds streams on third-party sites and plays t
 
 ## Requirements
 
-- **mpv** for playback. tsuzuki finds it on your `PATH` (or set `player.mpv_path`).
+- **mpv** for playback. tsuzuki finds it on your `PATH` and in the usual install
+  locations. On Windows that includes the folder next to `tsuzuki.exe` and an mpv
+  registered with `mpv --register`; otherwise set `player.mpv_path`.
 - **Chrome, Chromium or Edge** for Anikoto and for bot-protection checks. Without one,
   set `browser.auto_download = true` to have tsuzuki fetch Chromium, or remove
   Anikoto from `providers.order`.

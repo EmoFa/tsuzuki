@@ -8,17 +8,13 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"os"
 	"os/exec"
-	"runtime"
 	"slices"
 	"strconv"
 	"time"
 
 	"github.com/EmoFa/tsuzuki/internal/procfs"
 )
-
-var ErrMpvNotFound = errors.New("mpv not found: install it (https://mpv.io/installation/) or set player.mpv_path in the config")
 
 // connectTimeout bounds how long mpv may take to open its IPC server.
 const connectTimeout = 15 * time.Second
@@ -46,39 +42,6 @@ type Player struct {
 }
 
 func New(opts Options) *Player { return &Player{opts: opts} }
-
-// FindMpv resolves the mpv binary from a configured path or well-known places.
-func FindMpv(configured string) (string, error) {
-	if configured != "" {
-		p, err := exec.LookPath(configured)
-		if err != nil {
-			return "", fmt.Errorf("player.mpv_path %q: %w", configured, err)
-		}
-		return p, nil
-	}
-	if p, err := exec.LookPath("mpv"); err == nil {
-		return p, nil
-	}
-	var candidates []string
-	switch runtime.GOOS {
-	case "darwin":
-		candidates = []string{"/opt/homebrew/bin/mpv", "/usr/local/bin/mpv", "/Applications/mpv.app/Contents/MacOS/mpv"}
-	case "windows":
-		if dir := os.Getenv("ProgramFiles"); dir != "" {
-			// "MPV Player" is where winget's shinchiro.mpv installs, without adding it to PATH.
-			candidates = append(candidates, dir+`\mpv\mpv.exe`, dir+`\MPV Player\mpv.exe`)
-		}
-		if dir := os.Getenv("LocalAppData"); dir != "" {
-			candidates = append(candidates, dir+`\Programs\mpv\mpv.exe`)
-		}
-	}
-	for _, c := range candidates {
-		if info, err := os.Stat(c); err == nil && !info.IsDir() {
-			return c, nil
-		}
-	}
-	return "", ErrMpvNotFound
-}
 
 // Play starts mpv and returns once its IPC connection is ready. ctx only
 // bounds startup; stop playback with Playback.Close.

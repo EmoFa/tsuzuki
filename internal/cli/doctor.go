@@ -62,12 +62,20 @@ that needs one is reported so you can verify it by watching something.`,
 
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			failed := false
+			var details []string // multi-line details, shown below the table
 			for _, c := range checks {
 				mark := map[checkStatus]string{statusOK: "ok", statusWarn: "warn", statusFail: "FAIL"}[c.status]
 				failed = failed || c.status == statusFail
-				fmt.Fprintf(w, "%s\t%s\t%s\n", c.name, mark, c.detail)
+				first, rest, multi := strings.Cut(c.detail, "\n")
+				fmt.Fprintf(w, "%s\t%s\t%s\n", c.name, mark, first)
+				if multi {
+					details = append(details, fmt.Sprintf("\n%s:\n%s", c.name, rest))
+				}
 			}
 			w.Flush()
+			for _, d := range details {
+				fmt.Fprintln(cmd.OutOrStdout(), d)
+			}
 			if failed {
 				return errors.New("some checks failed")
 			}

@@ -110,3 +110,15 @@ func TestDocs(t *testing.T) {
 		}
 	}
 }
+
+func TestWindowsPathHint(t *testing.T) {
+	var cfg Config
+	err := Decode([]byte("[player]\nmpv_path = \"C:\\Program Files\\mpv\\mpv.exe\"\n"), &cfg)
+	if err == nil || !strings.Contains(err.Error(), "single quotes") {
+		t.Fatalf("err = %v", err)
+	}
+	cfg = Default()
+	if err := Decode([]byte("[player]\nmpv_path = 'C:\\Program Files\\mpv\\mpv.exe'\n"), &cfg); err != nil || cfg.Player.MpvPath != `C:\Program Files\mpv\mpv.exe` {
+		t.Fatalf("single quotes: %q %v", cfg.Player.MpvPath, err)
+	}
+}

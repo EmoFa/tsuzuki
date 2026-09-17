@@ -159,7 +159,11 @@ func Decode(data []byte, cfg *Config) error {
 			return fmt.Errorf("unknown config keys:\n%s", serr.String())
 		case errors.As(err, &derr):
 			row, col := derr.Position()
-			return fmt.Errorf("line %d, column %d: %s\n%s", row, col, derr.Error(), derr.String())
+			msg := fmt.Sprintf("line %d, column %d: %s\n%s", row, col, derr.Error(), derr.String())
+			if strings.Contains(derr.Error(), "escape") {
+				msg += "\nBackslashes in double quotes start escape codes. For Windows paths use single quotes: 'C:\\path\\to\\file'"
+			}
+			return errors.New(msg)
 		}
 		return err
 	}
