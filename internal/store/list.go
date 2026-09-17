@@ -21,6 +21,7 @@ type PendingSync struct {
 	MediaID   int
 	Status    string
 	Progress  int
+	Score     *float64 // nil: leave the remote score unchanged
 	Attempts  int
 	LastError string
 	QueuedAt  time.Time
@@ -84,12 +85,15 @@ func (s *Store) ListEntries(ctx context.Context, status string) ([]ListEntry, er
 }
 
 // QueueSync records the latest state to push for a show, replacing any pending one.
-func (s *Store) QueueSync(ctx context.Context, mediaID int, status string, progress int) error {
+// QueueSync records a change to send. score is sent only when not nil; a
+// newer change without a score keeps a pending one's score.
+func (s *Store) QueueSync(ctx context.Context, mediaID int, status string, progress int, score *float64) error {
 	_, err := s.DB.ExecContext(ctx, `
-		INSERT INTO sync_queue (media_id, status, progress, queued_at) VALUES (?, ?, ?, ?)
+		INSERT INTO sync_queue (media_id, status, progress, score, queued_at) VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT (media_id) DO UPDATE SET status = excluded.status, progress = excluded.progress,
+			score = COALESCE(excluded.score, sync_queue.score),
 			attempts = 0, last_error = '', queued_at = excluded.queued_at`,
-		mediaID, status, progress, time.Now().UnixMilli())
+		mediaID, status, progress, score, time.Now().UnixMilli())
 	return err
 }
 
@@ -109,7 +113,7 @@ func (s *Store) SyncDone(ctx context.Context, p PendingSync) error {
 
 func (s *Store) PendingSyncs(ctx context.Context) ([]PendingSync, error) {
 	rows, err := s.DB.QueryContext(ctx,
-		"SELECT media_id, status, progress, attempts, last_error, queued_at FROM sync_queue ORDER BY queued_at")
+		"SELECT media_id, status, progress, score, attempts, last_error, queued_at FROM sync_queue ORDER BY queued_at")
 	if err != nil {
 		return nil, err
 	}
@@ -118,8 +122,12 @@ func (s *Store) PendingSyncs(ctx context.Context) ([]PendingSync, error) {
 	for rows.Next() {
 		var p PendingSync
 		var queued int64
-		if err := rows.Scan(&p.MediaID, &p.Status, &p.Progress, &p.Attempts, &p.LastError, &queued); err != nil {
+		var score sql.NullFloat64
+		if err := rows.Scan(&p.MediaID, &p.Status, &p.Progress, &score, &p.Attempts, &p.LastError, &queued); err != nil {
 			return nil, err
+		}
+		if score.Valid {
+			p.Score = &score.Float64
 		}
 		p.QueuedAt = time.UnixMilli(queued)
 		out = append(out, p)

@@ -46,6 +46,11 @@ type Services interface {
 	SaveShowPrefs(ctx context.Context, p store.ShowPrefs) error
 	DeleteShowPrefs(ctx context.Context, mediaID int) error
 
+	// SetScore rates a show on the list from 1 to 10, returning a note.
+	SetScore(ctx context.Context, mediaID int, score float64) (string, error)
+	// Sequels lists a show's anime sequels, from AniList.
+	Sequels(ctx context.Context, mediaID int) ([]anilist.Media, error)
+
 	// CheckUpdate looks for a newer release (at most daily). With firstNotice,
 	// Update.Notify is true only the first time a given release is reported.
 	CheckUpdate(ctx context.Context, firstNotice bool) (Update, error)

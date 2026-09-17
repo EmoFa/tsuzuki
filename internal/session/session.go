@@ -127,6 +127,7 @@ const (
 	StatusEpisodeSkipped                       // Episode was passed over; Reason is "filler" or "recap"
 	StatusStopped                              // playback ended; Reason set
 	StatusNoNextEpisode                        // autoplay found nothing after Episode
+	StatusFinishedShow                         // the last episode of a finished show was watched
 )
 
 type Status struct {
@@ -545,6 +546,11 @@ func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, m
 				tr.Kind, tr.Reason, tr.Err = StatusTracked, note, err
 				s.status(tr)
 			}
+			if finishedShow(media, res.episode.Number) {
+				f := base
+				f.Kind = StatusFinishedShow
+				s.status(f)
+			}
 		}
 		p := store.Progress{
 			MediaID: media.ID, Episode: res.episode.Number,
@@ -666,6 +672,11 @@ func capitalize(s string) string {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// finishedShow reports whether episode is the last of a show that has ended.
+func finishedShow(media anilist.Media, episode float64) bool {
+	return media.Status == "FINISHED" && media.Episodes > 0 && episode >= float64(media.Episodes)
 }
 
 // prematureEnd reports a stream that hit end-of-file well before its duration,

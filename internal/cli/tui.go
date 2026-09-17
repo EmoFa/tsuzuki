@@ -211,3 +211,23 @@ func (s *tuiServices) CheckUpdate(ctx context.Context, firstNotice bool) (tui.Up
 	}
 	return u, nil
 }
+
+func (s *tuiServices) SetScore(ctx context.Context, mediaID int, score float64) (string, error) {
+	t, err := s.app.Tracker(ctx)
+	if err != nil {
+		return "", err
+	}
+	r, err := t.SetScore(ctx, mediaID, score)
+	if err != nil {
+		return "", err
+	}
+	return scoreNote(r), nil
+}
+
+func (s *tuiServices) Sequels(ctx context.Context, mediaID int) ([]anilist.Media, error) {
+	rels, err := s.anilist.Relations(ctx, mediaID)
+	if err != nil {
+		return nil, err
+	}
+	return anilist.Sequels(rels), nil
+}

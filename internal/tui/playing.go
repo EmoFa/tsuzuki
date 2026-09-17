@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -16,6 +17,8 @@ import (
 const playingLogLines = 6
 
 type playingScreen struct {
+	ctx     context.Context
+	svc     Services
 	req     session.Request
 	spinner spinner.Model
 
@@ -28,10 +31,15 @@ type playingScreen struct {
 	duration time.Duration
 	stopping bool
 	log      []string
+
+	finished bool // the last episode of a finished show was watched
+	finish   *finishPanel
 }
 
-func newPlaying(req session.Request) *playingScreen {
+func newPlaying(ctx context.Context, svc Services, req session.Request) *playingScreen {
 	return &playingScreen{
+		ctx:     ctx,
+		svc:     svc,
 		req:     req,
 		episode: req.Episode,
 		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
@@ -49,11 +57,20 @@ var (
 )
 
 func (p *playingScreen) Help() []key.Binding {
+	if p.finish != nil {
+		return p.finish.help()
+	}
 	return []key.Binding{keyNext, keyPrev, keyOther, keyStop}
 }
 
-// Back stops playback; the screen closes once progress has been saved.
-func (p *playingScreen) Back() tea.Cmd { return p.stop() }
+// Back stops playback; the screen closes once progress has been saved. After
+// playback, it closes the finishing panel.
+func (p *playingScreen) Back() tea.Cmd {
+	if p.finish != nil {
+		return pop
+	}
+	return p.stop()
+}
 
 func (p *playingScreen) stop() tea.Cmd {
 	p.stopping = true
@@ -70,7 +87,15 @@ func (p *playingScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 	case statusMsg:
 		p.apply(msg.st)
 
+	case finishEntryMsg, finishSequelsMsg, finishScoredMsg:
+		if p.finish != nil {
+			return p, p.finish.update(msg)
+		}
+
 	case tea.KeyPressMsg:
+		if p.finish != nil {
+			return p, p.finish.update(msg)
+		}
 		switch {
 		case key.Matches(msg, keyStop):
 			return p, p.stop()
@@ -142,6 +167,8 @@ func (p *playingScreen) apply(st session.Status) {
 		}
 	case session.StatusNoNextEpisode:
 		p.logf("No episode after %s is available yet", episodeLabel(st.Episode))
+	case session.StatusFinishedShow:
+		p.finished = true
 	}
 }
 
@@ -153,6 +180,9 @@ func (p *playingScreen) logf(format string, args ...any) {
 }
 
 func (p *playingScreen) View(width, height int) string {
+	if p.finish != nil {
+		return p.finish.view(width)
+	}
 	var b strings.Builder
 	b.WriteString("\n" + styleTitle.Render(truncate(p.req.Media.DisplayTitle(), width)) + "\n")
 

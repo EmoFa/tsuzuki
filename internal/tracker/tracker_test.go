@@ -22,13 +22,17 @@ type fakeRemote struct {
 	list  []anilist.ListItem
 }
 
-func (f *fakeRemote) SaveListEntry(_ context.Context, mediaID int, status string, progress int) error {
+func (f *fakeRemote) SaveListEntry(_ context.Context, mediaID int, status string, progress int, score *float64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.fail != nil {
 		return f.fail
 	}
-	f.saved = append(f.saved, strings.Join([]string{itoa(mediaID), status, itoa(progress)}, ":"))
+	parts := []string{itoa(mediaID), status, itoa(progress)}
+	if score != nil {
+		parts = append(parts, strconv.FormatFloat(*score, 'f', -1, 64))
+	}
+	f.saved = append(f.saved, strings.Join(parts, ":"))
 	return nil
 }
 
@@ -169,5 +173,41 @@ func TestSetStatus(t *testing.T) {
 	}
 	if r, _ := tr.SetStatus(ctx, 1, Planning); r.Entry.Status != Planning || r.Entry.Progress != 0 {
 		t.Fatalf("new planning entry = %+v", r.Entry)
+	}
+}
+
+func TestSetScore(t *testing.T) {
+	st := newStore(t)
+	remote := &fakeRemote{}
+	tr := &Tracker{Store: st, Remote: remote}
+	ctx := context.Background()
+
+	if _, err := tr.SetScore(ctx, frieren2.ID, 8); !errors.Is(err, ErrNotOnList) {
+		t.Fatalf("not on list: %v", err)
+	}
+	if _, err := tr.SetScore(ctx, frieren2.ID, 11); err == nil {
+		t.Fatal("accepted 11")
+	}
+	tr.EpisodeWatched(ctx, frieren2, 10)
+	r, err := tr.SetScore(ctx, frieren2.ID, 8.54)
+	if err != nil || !r.Synced || r.Entry.Score != 8.5 || r.Entry.Status != Completed || r.Entry.Progress != 10 {
+		t.Fatalf("SetScore = %+v, %v", r, err)
+	}
+	if got := remote.saved[len(remote.saved)-1]; got != "182255:COMPLETED:10:8.5" {
+		t.Fatalf("remote got %q", got)
+	}
+	// Status changes keep the score locally and don't resend it.
+	r, _ = tr.SetStatus(ctx, frieren2.ID, Repeating)
+	if r.Entry.Score != 8.5 || remote.saved[len(remote.saved)-1] != "182255:REPEATING:10" {
+		t.Fatalf("status change: %+v, remote %v", r, remote.saved)
+	}
+	// A score set while offline is sent later.
+	remote.fail = errors.New("offline")
+	if r, _ := tr.SetScore(ctx, frieren2.ID, 9); r.Synced || r.SyncErr == nil {
+		t.Fatalf("offline: %+v", r)
+	}
+	remote.fail = nil
+	if n, err := tr.Flush(ctx); n != 1 || err != nil || remote.saved[len(remote.saved)-1] != "182255:REPEATING:10:9" {
+		t.Fatalf("flush = %d %v, remote %v", n, err, remote.saved)
 	}
 }

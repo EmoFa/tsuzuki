@@ -216,7 +216,7 @@ func TestAuthenticatedCalls(t *testing.T) {
 	if err != nil || u.ID != 42 || u.Name != "testuser" {
 		t.Fatalf("viewer = %+v err=%v", u, err)
 	}
-	if err := authed.SaveListEntry(ctx, 182255, "CURRENT", 5); err != nil {
+	if err := authed.SaveListEntry(ctx, 182255, "CURRENT", 5, nil); err != nil {
 		t.Fatal(err)
 	}
 	items, err := authed.UserList(ctx, 42)

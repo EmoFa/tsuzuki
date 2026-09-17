@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/EmoFa/tsuzuki/internal/anilist"
 	"github.com/EmoFa/tsuzuki/internal/auth"
 	"github.com/EmoFa/tsuzuki/internal/tracker"
 )
@@ -246,4 +248,52 @@ func statusFromWord(w string) (string, bool) {
 		return tracker.Repeating, true
 	}
 	return "", false
+}
+
+func newRateCmd(app *App) *cobra.Command {
+	return &cobra.Command{
+		Use:   "rate <anilist-id> <score>",
+		Short: "Score a show on your list from 1 to 10 (synced to AniList when logged in)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			id, err := strconv.Atoi(args[0])
+			if err != nil {
+				return fmt.Errorf("anilist id must be a number, not %q", args[0])
+			}
+			score, err := strconv.ParseFloat(args[1], 64)
+			if err != nil || score < 1 || score > 10 {
+				return fmt.Errorf("score must be a number from 1 to 10, not %q", args[1])
+			}
+			t, err := app.Tracker(ctx)
+			if err != nil {
+				return err
+			}
+			r, err := t.SetScore(ctx, id, score)
+			if errors.Is(err, tracker.ErrNotOnList) {
+				return fmt.Errorf("AniList #%d isn't on your list yet; watch it or add it from its details screen first", id)
+			}
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), scoreNote(r))
+			return nil
+		},
+	}
+}
+
+// scoreNote describes a SetScore result.
+func scoreNote(r tracker.Result) string {
+	score := strconv.FormatFloat(r.Entry.Score, 'f', -1, 64)
+	switch {
+	case !r.Changed:
+		return "Already rated " + score + "/10."
+	case r.Synced:
+		return "Rated " + score + "/10 on AniList."
+	case errors.Is(r.SyncErr, anilist.ErrUnauthorized):
+		return "Rated " + score + "/10; AniList login expired, run `tsuzuki login` to sync."
+	case r.SyncErr != nil:
+		return "Rated " + score + "/10; AniList sync pending: " + firstLineOf(r.SyncErr.Error())
+	}
+	return "Rated " + score + "/10."
 }

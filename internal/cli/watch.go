@@ -269,10 +269,49 @@ func watch(ctx context.Context, app *App, mediaID int, episode float64, mode dom
 	}
 	err = sess.Watch(ctx, session.Request{Media: media, Episode: episode, Mode: mode, Provider: prefer, Subtitles: subs})
 	printer.endLine()
+	if printer.finished != nil {
+		printFinished(context.WithoutCancel(ctx), app, *printer.finished)
+	}
 	if ctx.Err() != nil {
 		return nil // interrupted
 	}
 	return err
+}
+
+// printFinished suggests rating a show just finished and watching its sequel.
+func printFinished(ctx context.Context, app *App, m anilist.Media) {
+	out := os.Stderr
+	fmt.Fprintf(out, "\n🎉 You finished %s.\n", m.DisplayTitle())
+	fmt.Fprintf(out, "   Rate it: tsuzuki rate %d <1-10>\n", m.ID)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	al, err := app.AniList(ctx)
+	if err != nil {
+		return
+	}
+	rels, err := al.Relations(ctx, m.ID)
+	if err != nil {
+		slog.Info("looking up sequels", "media", m.ID, "err", err)
+		return
+	}
+	for _, s := range anilist.Sequels(rels) {
+		fmt.Fprintf(out, "   Sequel: %s (%s) — tsuzuki watch %d\n", s.DisplayTitle(), mediaSummary(s), s.ID)
+	}
+}
+
+// mediaSummary is "TV · 2026" style detail.
+func mediaSummary(m anilist.Media) string {
+	var parts []string
+	if m.Format != "" {
+		parts = append(parts, strings.ReplaceAll(m.Format, "_", " "))
+	}
+	if m.Year > 0 {
+		parts = append(parts, strconv.Itoa(m.Year))
+	}
+	if m.Status == "NOT_YET_RELEASED" {
+		parts = append(parts, "upcoming")
+	}
+	return strings.Join(parts, " · ")
 }
 
 // subsFlag reads --subs: "off" hides subtitles, a comma-separated list sets the
@@ -316,6 +355,7 @@ type statusPrinter struct {
 	w            io.Writer
 	onProgress   bool
 	lastProgress time.Time
+	finished     *anilist.Media // set when the last episode of a show was watched
 }
 
 func (p *statusPrinter) print(s session.Status) {
@@ -356,6 +396,9 @@ func (p *statusPrinter) print(s session.Status) {
 		}
 	case session.StatusNoNextEpisode:
 		p.line("No episode after %s is available yet.", ep)
+	case session.StatusFinishedShow:
+		m := s.Media
+		p.finished = &m
 	}
 }
 

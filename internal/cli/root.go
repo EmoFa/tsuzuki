@@ -135,6 +135,7 @@ func NewRootCmd() (*cobra.Command, *App) {
 		newContinueCmd(app),
 		newHistoryCmd(app),
 		newListCmd(app),
+		newRateCmd(app),
 		newLoginCmd(app),
 		newLogoutCmd(app),
 		newWhoamiCmd(app),

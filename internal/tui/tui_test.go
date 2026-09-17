@@ -36,6 +36,7 @@ type fakeServices struct {
 	entries  []store.ListEntry
 	prefs    map[int]store.ShowPrefs
 	browsed  []anilist.BrowseQuery
+	scores   map[int]float64
 }
 
 func (f *fakeServices) Search(context.Context, string) ([]anilist.Media, error) {
@@ -165,6 +166,25 @@ func (f *fakeServices) DeleteShowPrefs(_ context.Context, id int) error {
 	defer f.mu.Unlock()
 	delete(f.prefs, id)
 	return nil
+}
+
+func (f *fakeServices) SetScore(_ context.Context, id int, score float64) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.scores == nil {
+		f.scores = map[int]float64{}
+	}
+	f.scores[id] = score
+	return fmt.Sprintf("Rated %g/10.", score), nil
+}
+
+var frieren3 = anilist.Media{ID: 999001, Title: anilist.Title{English: "Frieren: Beyond Journey’s End Season 3"}, Format: "TV", Status: "NOT_YET_RELEASED"}
+
+func (f *fakeServices) Sequels(_ context.Context, id int) ([]anilist.Media, error) {
+	if id == frieren2.ID {
+		return []anilist.Media{frieren3}, nil
+	}
+	return nil, nil
 }
 
 func (f *fakeServices) CheckUpdate(context.Context, bool) (Update, error) {
@@ -331,8 +351,11 @@ func TestDetailsMarkers(t *testing.T) {
 	for _, msg := range runBatch(d.loadKinds()) {
 		d.Update(msg)
 	}
+	for _, msg := range runBatch(d.loadSequels()) {
+		d.Update(msg)
+	}
 	view := d.View(100, 30)
-	for _, want := range []string{"filler", "✓", "▶", "next", "c continues with episode 3", "Following the exam,", "trio heads north & beyond."} {
+	for _, want := range []string{"filler", "✓", "▶", "next", "c continues with episode 3", "Following the exam,", "trio heads north & beyond.", "Sequel: Frieren: Beyond Journey’s End Season 3 · r to open"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q:\n%s", want, view)
 		}
@@ -549,5 +572,97 @@ func TestDiscoverPagingFiltersAndTags(t *testing.T) {
 	last = svc.browsed[len(svc.browsed)-1]
 	if last.Sort != "TRENDING_DESC" || !slices.Equal(last.Genres, []string{"Action"}) {
 		t.Fatalf("trending query = %+v", last)
+	}
+}
+
+func TestFinishingPanel(t *testing.T) {
+	svc := &fakeServices{}
+	ctx := context.Background()
+	m := New(ctx, svc)
+	m.width, m.height = 100, 30
+	req := session.Request{Media: frieren2, Episode: 10, Mode: domain.Sub}
+	m.showPlaying(req)
+	m.watching, m.gen = true, 1
+	m.Update(statusMsg{gen: 1, st: session.Status{Kind: session.StatusFinishedShow, Media: frieren2, Episode: 10}})
+
+	var toasts []string
+	var apply func(tea.Cmd)
+	apply = func(cmd tea.Cmd) {
+		for _, msg := range runBatch(cmd) {
+			switch msg := msg.(type) {
+			case nil:
+			case toastMsg: // don't run the expiry timer
+				toasts = append(toasts, msg.text)
+			default:
+				_, next := m.Update(msg)
+				apply(next)
+			}
+		}
+	}
+	// Playback ends: the screen stays for the finishing panel instead of closing.
+	apply(m.watchDone(watchDoneMsg{gen: 1}))
+	p, ok := m.top().(*playingScreen)
+	if !ok || p.finish == nil || !p.finish.rating {
+		t.Fatalf("top = %T, finish = %+v", m.top(), p)
+	}
+	if view := m.render(); !strings.Contains(view, "You finished Frieren") || !strings.Contains(view, "Rate it") {
+		t.Fatalf("rating view:\n%s", view)
+	}
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: '9', Text: "9"})
+	apply(cmd)
+	if svc.scores[frieren2.ID] != 9 {
+		t.Fatalf("scores = %v", svc.scores)
+	}
+	view := m.render()
+	for _, want := range []string{"Up next", "Season 3"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("sequel view missing %q:\n%s", want, view)
+		}
+	}
+	if !slices.Contains(toasts, "Rated 9/10.") {
+		t.Errorf("toasts = %q", toasts)
+	}
+
+	// p adds the sequel to Planning rather than jumping to a previous episode.
+	_, cmd = m.Update(tea.KeyPressMsg{Code: 'p', Text: "p"})
+	apply(cmd)
+	if n := len(svc.entries); n == 0 || svc.entries[n-1].MediaID != frieren3.ID || svc.entries[n-1].Status != "PLANNING" {
+		t.Fatalf("entries = %+v", svc.entries)
+	}
+
+	// Enter starts the sequel.
+	_, cmd = m.Update(press("enter"))
+	var started *session.Request
+	for _, msg := range runBatch(cmd) {
+		if w, ok := msg.(watchMsg); ok {
+			started = &w.req
+		}
+	}
+	if started == nil || started.Media.ID != frieren3.ID || started.Mode != domain.Sub {
+		t.Fatalf("enter didn't start the sequel: %+v", started)
+	}
+
+	// esc closes the panel.
+	_, cmd = m.Update(press("esc"))
+	apply(cmd)
+	if _, ok := m.top().(*playingScreen); ok {
+		t.Fatal("esc didn't close the finishing panel")
+	}
+}
+
+func TestFinishingSkipsRatingAndNoSequel(t *testing.T) {
+	svc := &fakeServices{}
+	other := anilist.Media{ID: 5, Title: anilist.Title{English: "Standalone"}, Episodes: 1, Status: "FINISHED"}
+	p := newPlaying(context.Background(), svc, session.Request{Media: other, Episode: 1})
+	for _, msg := range runBatch(p.startFinishing()) {
+		p.Update(msg)
+	}
+	p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	if len(svc.scores) != 0 || p.finish.rating {
+		t.Fatal("s should skip rating without scoring")
+	}
+	if view := p.View(80, 20); !strings.Contains(view, "No sequel") {
+		t.Fatalf("view:\n%s", view)
 	}
 }

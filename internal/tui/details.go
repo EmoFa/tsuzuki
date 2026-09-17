@@ -32,6 +32,10 @@ type detailsKindsMsg struct {
 	kinds map[int]skip.EpisodeKind
 }
 
+type detailsSequelsMsg struct {
+	sequels []anilist.Media
+}
+
 type detailsPrefsMsg struct {
 	prefs *store.ShowPrefs
 }
@@ -73,6 +77,7 @@ type detailsScreen struct {
 	pickingStatus bool
 	kinds         map[int]skip.EpisodeKind
 
+	sequels     []anilist.Media
 	prefs       *store.ShowPrefs // nil: the show uses the config
 	editingSubs bool
 	subsInput   textinput.Model
@@ -88,7 +93,7 @@ func newDetails(ctx context.Context, svc Services, media anilist.Media, mode dom
 func (d *detailsScreen) Title() string { return truncate(d.media.DisplayTitle(), 40) }
 
 func (d *detailsScreen) Init() tea.Cmd {
-	cmds := []tea.Cmd{d.loadProgress(), d.loadEntry(), d.loadKinds(), d.loadPrefs()}
+	cmds := []tea.Cmd{d.loadProgress(), d.loadEntry(), d.loadKinds(), d.loadPrefs(), d.loadSequels()}
 	if d.media.AiredEpisodes() == 0 {
 		cmds = append(cmds, d.loadEpisodes())
 	}
@@ -105,6 +110,17 @@ func (d *detailsScreen) loadKinds() tea.Cmd {
 			return nil
 		}
 		return detailsKindsMsg{kinds}
+	}
+}
+
+func (d *detailsScreen) loadSequels() tea.Cmd {
+	ctx, svc, id := d.ctx, d.svc, d.media.ID
+	return func() tea.Msg {
+		s, err := svc.Sequels(ctx, id)
+		if err != nil {
+			return nil
+		}
+		return detailsSequelsMsg{s}
 	}
 }
 
@@ -206,6 +222,7 @@ var (
 	keyMode     = key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "sub/dub"))
 	keyStatus   = key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "list status"))
 	keySubs     = key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "subtitles"))
+	keySequel   = key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "sequel"))
 )
 
 func (d *detailsScreen) Help() []key.Binding {
@@ -221,7 +238,11 @@ func (d *detailsScreen) Help() []key.Binding {
 		return []key.Binding{key.NewBinding(key.WithKeys("1"), key.WithHelp("1-6", "choose status")),
 			key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel"))}
 	}
-	return []key.Binding{keyPlay, keyContinue, keyMode, keyStatus, keySubs}
+	keys := []key.Binding{keyPlay, keyContinue, keyMode, keyStatus, keySubs}
+	if len(d.sequels) > 0 {
+		keys = append(keys, keySequel)
+	}
+	return keys
 }
 
 // CapturesInput keeps esc for cancelling the status picker and typed text for
@@ -255,6 +276,9 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 
 	case detailsPrefsMsg:
 		d.prefs = msg.prefs
+
+	case detailsSequelsMsg:
+		d.sequels = msg.sequels
 
 	case detailsPrefsSavedMsg:
 		if msg.err != nil {
@@ -312,6 +336,8 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 			return d, nil
 		case key.Matches(msg, keySubs):
 			return d, d.startEditingSubs()
+		case key.Matches(msg, keySequel) && len(d.sequels) > 0:
+			return d, push(newDetails(d.ctx, d.svc, d.sequels[0], d.mode))
 		case key.Matches(msg, keyPlay):
 			if len(d.numbers) == 0 {
 				return d, nil
@@ -410,6 +436,13 @@ func (d *detailsScreen) View(width, height int) string {
 		b.WriteString(styleMuted.Render("Not on your list · l to add") + "\n")
 	}
 	b.WriteString(d.subtitlesLine(width) + "\n")
+	if len(d.sequels) > 0 {
+		var names []string
+		for _, s := range d.sequels {
+			names = append(names, s.DisplayTitle())
+		}
+		b.WriteString(styleInfo.Render(truncate("Sequel: "+strings.Join(names, ", ")+" · r to open", width)) + "\n")
+	}
 	if desc := plainDescription(m.Description); desc != "" {
 		// Leave room for clampLines' ellipsis so it never wraps.
 		wrapped := lipgloss.NewStyle().Width(min(width, 100) - 2).Render(desc)

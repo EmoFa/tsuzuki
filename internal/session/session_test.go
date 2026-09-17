@@ -660,3 +660,29 @@ func TestSubtitlePreferences(t *testing.T) {
 		t.Errorf("request override: %+v", r)
 	}
 }
+
+func TestFinishedShow(t *testing.T) {
+	p := &fakeProvider{name: "senshi", eps: 3}
+	for _, tc := range []struct {
+		name    string
+		media   anilist.Media
+		episode float64
+		want    bool
+	}{
+		{"last episode of a finished show", media, 3, true},
+		{"earlier episode", media, 2, false},
+		{"airing show", anilist.Media{ID: 5, Episodes: 3, Status: "RELEASING"}, 3, false},
+		{"unknown length", anilist.Media{ID: 6, Status: "FINISHED"}, 3, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, []provider.Provider{p}, played(24*time.Minute, 24*time.Minute, "eof"), played(time.Minute, 24*time.Minute, "quit"))
+			h.sess.Settings.AutoplayNext = false
+			if err := h.sess.Watch(context.Background(), Request{Media: tc.media, Episode: tc.episode, Mode: domain.Sub}); err != nil {
+				t.Fatal(err)
+			}
+			if got := len(h.kinds(StatusFinishedShow)) == 1; got != tc.want {
+				t.Errorf("finished = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

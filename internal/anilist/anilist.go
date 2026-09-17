@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -303,16 +304,21 @@ func (c *Client) Viewer(ctx context.Context) (User, error) {
 	return *data.Viewer, nil
 }
 
-// SaveListEntry sets a show's status and progress on the logged-in user's list.
-func (c *Client) SaveListEntry(ctx context.Context, mediaID int, status string, progress int) error {
+// SaveListEntry sets a show's status and progress on the logged-in user's list,
+// and its score (out of 10) when score isn't nil.
+func (c *Client) SaveListEntry(ctx context.Context, mediaID int, status string, progress int, score *float64) error {
 	var data struct {
 		Entry *struct {
 			ID int `json:"id"`
 		} `json:"SaveMediaListEntry"`
 	}
-	q := `mutation ($mediaId: Int, $status: MediaListStatus, $progress: Int) {
-		SaveMediaListEntry(mediaId: $mediaId, status: $status, progress: $progress) { id status progress } }`
+	q := `mutation ($mediaId: Int, $status: MediaListStatus, $progress: Int, $scoreRaw: Int) {
+		SaveMediaListEntry(mediaId: $mediaId, status: $status, progress: $progress, scoreRaw: $scoreRaw) { id status progress } }`
 	vars := map[string]any{"mediaId": mediaID, "status": status, "progress": progress}
+	if score != nil {
+		// scoreRaw is out of 100 whatever score format the user has chosen.
+		vars["scoreRaw"] = int(math.Round(*score * 10))
+	}
 	if err := c.query(ctx, q, vars, &data); err != nil {
 		return fmt.Errorf("anilist save list entry: %w", err)
 	}

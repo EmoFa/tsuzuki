@@ -294,7 +294,7 @@ func (m *Model) startWatch(req session.Request) tea.Cmd {
 
 // showPlaying puts a fresh now-playing screen on top, replacing an existing one.
 func (m *Model) showPlaying(req session.Request) tea.Cmd {
-	p := newPlaying(req)
+	p := newPlaying(m.ctx, m.svc, req)
 	if _, ok := m.top().(*playingScreen); ok {
 		m.stack[len(m.stack)-1] = p
 	} else {
@@ -320,8 +320,13 @@ func (m *Model) watchDone(msg watchDoneMsg) tea.Cmd {
 		return m.startWatch(req)
 	}
 	var cmds []tea.Cmd
-	if _, ok := m.top().(*playingScreen); ok {
-		cmds = append(cmds, pop)
+	if p, ok := m.top().(*playingScreen); ok {
+		if p.finished && msg.err == nil {
+			// Stay on the screen to rate the show and offer its sequel.
+			cmds = append(cmds, p.startFinishing())
+		} else {
+			cmds = append(cmds, pop)
+		}
 	}
 	if msg.err != nil && !errors.Is(msg.err, context.Canceled) {
 		cmds = append(cmds, toast(firstLine(msg.err.Error()), true))

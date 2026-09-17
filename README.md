@@ -16,7 +16,8 @@ in [mpv](https://mpv.io), remembering where you stopped and keeping your
 - **Continue where you left off:** per-episode history, resume, and autoplay.
 - **Browse** this season, trending, popular, top-rated and upcoming anime, filtered by
   genre and format.
-- **AniList tracking** with a browser login, or fully local tracking.
+- **AniList tracking** with a browser login, or fully local tracking. Finish a show
+  and tsuzuki asks for your score, then offers the sequel.
 - **Skip openings, endings and recaps** automatically or at a key press, and
   optionally skip whole filler and recap episodes.
 - **Discord Rich Presence** with the title, episode, cover and progress.
@@ -103,8 +104,11 @@ on your machine.
 | | <kbd>m</kbd> | Switch between sub and dub |
 | | <kbd>l</kbd> | Change the list status |
 | | <kbd>s</kbd> | Subtitle languages for this show |
+| | <kbd>r</kbd> | Open the sequel |
 | Browse | <kbd>←</kbd> <kbd>→</kbd> | Switch list |
 | | <kbd>f</kbd> | Filter by genre and format |
+| Finished a show | <kbd>1</kbd>–<kbd>9</kbd>, <kbd>0</kbd> | Rate it (0 = 10), or <kbd>s</kbd> to skip |
+| | <kbd>Enter</kbd> / <kbd>p</kbd> | Watch the sequel / add it to Planning |
 | Now playing | <kbd>n</kbd> / <kbd>p</kbd> | Next / previous episode |
 | | <kbd>f</kbd> | Try another provider |
 | | <kbd>x</kbd> | Stop |
@@ -125,6 +129,7 @@ tsuzuki watch 154587 --subs es,en  # subtitle languages for this watch ("off" hi
 tsuzuki continue                   # the show you watched last
 tsuzuki history                    # recently watched
 tsuzuki list watching              # your list (watching, planning, completed, ...)
+tsuzuki rate 154587 9              # score a show from 1 to 10
 tsuzuki login | logout | whoami | sync
 tsuzuki config init | edit | check | path
 tsuzuki doctor [--streams]         # check dependencies, services and providers

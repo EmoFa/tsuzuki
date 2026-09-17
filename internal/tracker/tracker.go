@@ -35,7 +35,7 @@ type Store interface {
 	ListEntry(ctx context.Context, mediaID int) (*store.ListEntry, error)
 	SaveListEntry(ctx context.Context, e store.ListEntry) error
 	ListEntries(ctx context.Context, status string) ([]store.ListEntry, error)
-	QueueSync(ctx context.Context, mediaID int, status string, progress int) error
+	QueueSync(ctx context.Context, mediaID int, status string, progress int, score *float64) error
 	SyncFailed(ctx context.Context, mediaID int, cause error) error
 	SyncDone(ctx context.Context, p store.PendingSync) error
 	PendingSyncs(ctx context.Context) ([]store.PendingSync, error)
@@ -43,7 +43,9 @@ type Store interface {
 
 // Remote is a list service such as AniList.
 type Remote interface {
-	SaveListEntry(ctx context.Context, mediaID int, status string, progress int) error
+	// SaveListEntry saves a show's status and progress, and its score (out of
+	// 10) when score isn't nil.
+	SaveListEntry(ctx context.Context, mediaID int, status string, progress int, score *float64) error
 	UserList(ctx context.Context) ([]anilist.ListItem, error)
 }
 
@@ -115,7 +117,35 @@ func (t *Tracker) SetStatus(ctx context.Context, mediaID int, status string) (Re
 	return t.save(ctx, e)
 }
 
+// ErrNotOnList means a show must be on the list before it can be scored.
+var ErrNotOnList = errors.New("not on your list")
+
+// SetScore rates a show on the list from 1 to 10 (tenths allowed).
+func (t *Tracker) SetScore(ctx context.Context, mediaID int, score float64) (Result, error) {
+	if score < 1 || score > 10 {
+		return Result{}, fmt.Errorf("score must be from 1 to 10, not %g", score)
+	}
+	score = math.Round(score*10) / 10
+	cur, err := t.Store.ListEntry(ctx, mediaID)
+	if err != nil {
+		return Result{}, err
+	}
+	if cur == nil {
+		return Result{}, ErrNotOnList
+	}
+	if cur.Score == score {
+		return Result{Entry: *cur}, nil
+	}
+	e := *cur
+	e.Score = score
+	return t.saveWithScore(ctx, e, &score)
+}
+
 func (t *Tracker) save(ctx context.Context, e store.ListEntry) (Result, error) {
+	return t.saveWithScore(ctx, e, nil)
+}
+
+func (t *Tracker) saveWithScore(ctx context.Context, e store.ListEntry, score *float64) (Result, error) {
 	e.UpdatedAt = time.Now()
 	if err := t.Store.SaveListEntry(ctx, e); err != nil {
 		return Result{}, err
@@ -124,7 +154,7 @@ func (t *Tracker) save(ctx context.Context, e store.ListEntry) (Result, error) {
 	if t.Remote == nil {
 		return r, nil
 	}
-	if err := t.Store.QueueSync(ctx, e.MediaID, e.Status, e.Progress); err != nil {
+	if err := t.Store.QueueSync(ctx, e.MediaID, e.Status, e.Progress, score); err != nil {
 		return r, err
 	}
 	pushed, err := t.Flush(ctx)
@@ -152,7 +182,7 @@ func (t *Tracker) Flush(ctx context.Context) (int, error) {
 	var errs []error
 	for _, p := range pending {
 		pushCtx, cancel := context.WithTimeout(ctx, remoteTimeout)
-		err := t.Remote.SaveListEntry(pushCtx, p.MediaID, p.Status, p.Progress)
+		err := t.Remote.SaveListEntry(pushCtx, p.MediaID, p.Status, p.Progress, p.Score)
 		cancel()
 		switch {
 		case err == nil:
@@ -211,8 +241,8 @@ type AniListRemote struct {
 	UserID int
 }
 
-func (r AniListRemote) SaveListEntry(ctx context.Context, mediaID int, status string, progress int) error {
-	return r.Client.SaveListEntry(ctx, mediaID, status, progress)
+func (r AniListRemote) SaveListEntry(ctx context.Context, mediaID int, status string, progress int, score *float64) error {
+	return r.Client.SaveListEntry(ctx, mediaID, status, progress, score)
 }
 
 func (r AniListRemote) UserList(ctx context.Context) ([]anilist.ListItem, error) {

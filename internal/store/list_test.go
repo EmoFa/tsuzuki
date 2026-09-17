@@ -42,7 +42,7 @@ func TestSyncQueue(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()
 
-	s.QueueSync(ctx, 1, "CURRENT", 3)
+	s.QueueSync(ctx, 1, "CURRENT", 3, nil)
 	s.SyncFailed(ctx, 1, errors.New("offline"))
 	pending, err := s.PendingSyncs(ctx)
 	if err != nil || len(pending) != 1 || pending[0].Attempts != 1 || pending[0].LastError != "offline" {
@@ -52,7 +52,7 @@ func TestSyncQueue(t *testing.T) {
 
 	// A newer change replaces the pending one and resets attempts.
 	time.Sleep(2 * time.Millisecond)
-	s.QueueSync(ctx, 1, "CURRENT", 4)
+	s.QueueSync(ctx, 1, "CURRENT", 4, nil)
 	pending, _ = s.PendingSyncs(ctx)
 	if len(pending) != 1 || pending[0].Progress != 4 || pending[0].Attempts != 0 {
 		t.Fatalf("pending = %+v", pending)
@@ -66,5 +66,22 @@ func TestSyncQueue(t *testing.T) {
 	s.SyncDone(ctx, pending[0])
 	if pending, _ = s.PendingSyncs(ctx); len(pending) != 0 {
 		t.Fatalf("pending = %+v", pending)
+	}
+}
+
+func TestSyncQueueKeepsPendingScore(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	score := 9.0
+	s.QueueSync(ctx, 1, "COMPLETED", 12, &score)
+	s.QueueSync(ctx, 1, "COMPLETED", 12, nil) // e.g. a status change before syncing
+	pending, err := s.PendingSyncs(ctx)
+	if err != nil || len(pending) != 1 || pending[0].Score == nil || *pending[0].Score != 9 {
+		t.Fatalf("pending = %+v err=%v", pending, err)
+	}
+	newer := 7.5
+	s.QueueSync(ctx, 1, "COMPLETED", 12, &newer)
+	if pending, _ = s.PendingSyncs(ctx); *pending[0].Score != 7.5 {
+		t.Fatalf("score = %v", *pending[0].Score)
 	}
 }
