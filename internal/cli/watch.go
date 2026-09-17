@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -35,21 +36,78 @@ func newSearchCmd(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if len(results) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No results.")
-				return nil
-			}
-			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tFORMAT\tEPISODES\tYEAR\tTITLE")
-			for _, m := range results {
-				fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\n", m.ID, m.Format, episodesLabel(m), yearLabel(m.Year), m.DisplayTitle())
-			}
-			w.Flush()
-			fmt.Fprintln(cmd.OutOrStdout(), "\nWatch with: tsuzuki watch <id> [episode]")
+			printMedia(cmd.OutOrStdout(), results)
 			return nil
 		},
 	}
 	cmd.Flags().IntVarP(&limit, "limit", "n", 10, "number of results")
+	return cmd
+}
+
+func printMedia(out io.Writer, results []anilist.Media) {
+	if len(results) == 0 {
+		fmt.Fprintln(out, "No results.")
+		return
+	}
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tFORMAT\tEPISODES\tYEAR\tTITLE")
+	for _, m := range results {
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\n", m.ID, m.Format, episodesLabel(m), yearLabel(m.Year), m.DisplayTitle())
+	}
+	w.Flush()
+	fmt.Fprintln(out, "\nWatch with: tsuzuki watch <id> [episode]")
+}
+
+func newDiscoverCmd(app *App) *cobra.Command {
+	var limit int
+	var genres, formats []string
+	lists := anilist.DiscoverLists(time.Now())
+	var keys []string
+	for _, l := range lists {
+		keys = append(keys, l.Key)
+	}
+	cmd := &cobra.Command{
+		Use:       "discover [" + strings.Join(keys, "|") + "]",
+		Short:     "Browse this season's, trending, popular, top rated or upcoming anime",
+		Args:      cobra.MaximumNArgs(1),
+		ValidArgs: keys,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := "season"
+			if len(args) == 1 {
+				name = strings.ToLower(args[0])
+			}
+			i := slices.IndexFunc(lists, func(l anilist.DiscoverList) bool { return l.Key == name })
+			if i < 0 {
+				return fmt.Errorf("unknown list %q: choose %s", name, strings.Join(keys, ", "))
+			}
+			q := lists[i].Query
+			q.PerPage = limit
+			for _, g := range genres {
+				q.Genres = append(q.Genres, strings.TrimSpace(g))
+			}
+			for _, f := range formats {
+				f = strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(f), " ", "_"))
+				if !slices.Contains(anilist.Formats, f) {
+					return fmt.Errorf("--format %q: choose %s", f, strings.ToLower(strings.Join(anilist.Formats, ", ")))
+				}
+				q.Formats = append(q.Formats, f)
+			}
+			al, err := app.AniList(cmd.Context())
+			if err != nil {
+				return err
+			}
+			page, err := al.Browse(cmd.Context(), q)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), lists[i].Title+":")
+			printMedia(cmd.OutOrStdout(), page.Media)
+			return nil
+		},
+	}
+	cmd.Flags().IntVarP(&limit, "limit", "n", 20, "number of results")
+	cmd.Flags().StringSliceVar(&genres, "genre", nil, `only these genres, e.g. --genre Action (repeat or comma-separate; all must match)`)
+	cmd.Flags().StringSliceVar(&formats, "format", nil, "only these formats: tv, tv_short, movie, ova, ona, special")
 	return cmd
 }
 
@@ -315,6 +373,10 @@ func (p *statusPrinter) endLine() {
 
 func episodesLabel(m anilist.Media) string {
 	switch {
+	case m.Status == "NOT_YET_RELEASED" && m.Episodes > 0:
+		return strconv.Itoa(m.Episodes)
+	case m.Status == "NOT_YET_RELEASED":
+		return "?"
 	case m.NextAiringEpisode != nil && m.Episodes > 0:
 		return fmt.Sprintf("%d/%d", m.AiredEpisodes(), m.Episodes)
 	case m.NextAiringEpisode != nil:

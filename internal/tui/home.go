@@ -101,14 +101,15 @@ var (
 	keyDetails  = key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "details"))
 	keySearch   = key.NewBinding(key.WithKeys("/", "s"), key.WithHelp("/", "search"))
 	keySettings = key.NewBinding(key.WithKeys(","), key.WithHelp(",", "settings"))
+	keyDiscover = key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "browse"))
 	keyTabs     = key.NewBinding(key.WithKeys("tab", "right", "shift+tab", "left"), key.WithHelp("←/→", "list tabs"))
 )
 
 func (h *homeScreen) Help() []key.Binding {
 	if len(h.items) == 0 {
-		return []key.Binding{keySearch, keyTabs, keySettings}
+		return []key.Binding{keySearch, keyDiscover, keyTabs, keySettings}
 	}
-	return []key.Binding{keyResume, keyDetails, keySearch, keyTabs, keySettings}
+	return []key.Binding{keyResume, keyDetails, keySearch, keyDiscover, keyTabs, keySettings}
 }
 
 func (h *homeScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
@@ -128,6 +129,8 @@ func (h *homeScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 			return h, push(newSearch(h.ctx, h.svc))
 		case key.Matches(msg, keySettings):
 			return h, push(newSettings(h.ctx, h.svc))
+		case key.Matches(msg, keyDiscover):
+			return h, push(newDiscover(h.ctx, h.svc))
 		case key.Matches(msg, keyTabs):
 			step := 1
 			if msg.String() == "left" || msg.String() == "shift+tab" {
@@ -194,7 +197,7 @@ func (h *homeScreen) View(width, height int) string {
 		return b.String()
 	case len(h.items) == 0 && h.tab == 0:
 		b.WriteString("Nothing watched yet.\n\n")
-		b.WriteString("Press " + styleKey.Render("/") + " to search for an anime.")
+		b.WriteString("Press " + styleKey.Render("/") + " to search for an anime, or " + styleKey.Render("b") + " to browse this season and trending shows.")
 		return b.String()
 	case len(h.items) == 0:
 		b.WriteString(styleMuted.Render("Nothing here yet."))

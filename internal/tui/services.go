@@ -16,6 +16,8 @@ import (
 // only from tea.Cmds, never from Update or View.
 type Services interface {
 	Search(ctx context.Context, query string) ([]anilist.Media, error)
+	Browse(ctx context.Context, q anilist.BrowseQuery) (anilist.BrowsePage, error)
+	Genres(ctx context.Context) ([]string, error)
 	Media(ctx context.Context, id int) (anilist.Media, error)
 	RecentShows(ctx context.Context, limit int) ([]store.Progress, error)
 	ShowProgress(ctx context.Context, mediaID int) ([]store.Progress, error)

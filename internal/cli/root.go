@@ -130,6 +130,7 @@ func NewRootCmd() (*cobra.Command, *App) {
 		newVersionCmd(app),
 		newConfigCmd(app),
 		newSearchCmd(app),
+		newDiscoverCmd(app),
 		newWatchCmd(app),
 		newContinueCmd(app),
 		newHistoryCmd(app),

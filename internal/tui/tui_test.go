@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -33,10 +35,29 @@ type fakeServices struct {
 	watches  []session.Request
 	entries  []store.ListEntry
 	prefs    map[int]store.ShowPrefs
+	browsed  []anilist.BrowseQuery
 }
 
 func (f *fakeServices) Search(context.Context, string) ([]anilist.Media, error) {
 	return []anilist.Media{{ID: 1, Title: anilist.Title{English: "Frieren: Beyond Journey’s End"}, Episodes: 28}, frieren2}, nil
+}
+
+// Browse returns 30 numbered shows over two pages.
+func (f *fakeServices) Browse(_ context.Context, q anilist.BrowseQuery) (anilist.BrowsePage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.browsed = append(f.browsed, q)
+	var page anilist.BrowsePage
+	first := (q.Page - 1) * q.PerPage
+	for i := first; i < min(first+q.PerPage, 30); i++ {
+		page.Media = append(page.Media, anilist.Media{ID: 1000 + i, Title: anilist.Title{English: fmt.Sprintf("Show %d", i)}, Format: "TV"})
+	}
+	page.HasNext = first+q.PerPage < 30
+	return page, nil
+}
+
+func (f *fakeServices) Genres(context.Context) ([]string, error) {
+	return []string{"Action", "Romance"}, nil
 }
 
 func (f *fakeServices) Media(_ context.Context, id int) (anilist.Media, error) {
@@ -473,5 +494,60 @@ func TestDetailsSubtitleEditor(t *testing.T) {
 	apply(cmd)
 	if _, ok := svc.prefs[frieren2.ID]; ok {
 		t.Fatal("saved an invalid language")
+	}
+}
+
+func TestDiscoverPagingFiltersAndTags(t *testing.T) {
+	svc := &fakeServices{entries: []store.ListEntry{{MediaID: 1001, Status: "PLANNING"}}}
+	d := newDiscover(context.Background(), svc)
+	var apply func(tea.Cmd)
+	apply = func(cmd tea.Cmd) {
+		for _, msg := range runBatch(cmd) {
+			if msg != nil {
+				_, next := d.Update(msg)
+				apply(next)
+			}
+		}
+	}
+	apply(d.Init())
+	if len(d.items) != 25 || !d.hasNext {
+		t.Fatalf("first page: %d items, hasNext %v", len(d.items), d.hasNext)
+	}
+	view := d.View(100, 40)
+	for _, want := range []string{"This season", "Trending", "Show 0", "Show 1", "Planning", "Genre: any · Format: any"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+
+	// Moving near the end loads the next page.
+	for range 21 {
+		_, cmd := d.Update(press("down"))
+		apply(cmd)
+	}
+	if len(d.items) != 30 || d.hasNext {
+		t.Fatalf("after scrolling: %d items, hasNext %v", len(d.items), d.hasNext)
+	}
+
+	// Filter: genre Action, format MOVIE, then apply reloads from page 1.
+	_, cmd := d.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
+	apply(cmd)
+	d.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	d.Update(press("down"))
+	d.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	d.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	_, cmd = d.Update(press("enter"))
+	apply(cmd)
+	last := svc.browsed[len(svc.browsed)-1]
+	if last.Page != 1 || !slices.Equal(last.Genres, []string{"Action"}) || !slices.Equal(last.Formats, []string{"MOVIE"}) {
+		t.Fatalf("filtered query = %+v", last)
+	}
+
+	// Switching lists keeps the filters.
+	_, cmd = d.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	apply(cmd)
+	last = svc.browsed[len(svc.browsed)-1]
+	if last.Sort != "TRENDING_DESC" || !slices.Equal(last.Genres, []string{"Action"}) {
+		t.Fatalf("trending query = %+v", last)
 	}
 }

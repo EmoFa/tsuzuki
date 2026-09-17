@@ -52,6 +52,14 @@ func (s *tuiServices) Search(ctx context.Context, query string) ([]anilist.Media
 	return s.anilist.Search(ctx, query, 25)
 }
 
+func (s *tuiServices) Browse(ctx context.Context, q anilist.BrowseQuery) (anilist.BrowsePage, error) {
+	return s.anilist.Browse(ctx, q)
+}
+
+func (s *tuiServices) Genres(ctx context.Context) ([]string, error) {
+	return s.anilist.Genres(ctx)
+}
+
 func (s *tuiServices) Media(ctx context.Context, id int) (anilist.Media, error) {
 	return s.anilist.Media(ctx, id)
 }

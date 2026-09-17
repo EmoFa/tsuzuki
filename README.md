@@ -14,6 +14,8 @@ in [mpv](https://mpv.io), remembering where you stopped and keeping your
   stops partway, moves on to the next provider at the same position.
 - **Gets past Cloudflare and DDoS-Guard** with a built-in Chrome/Chromium session.
 - **Continue where you left off:** per-episode history, resume, and autoplay.
+- **Browse** this season, trending, popular, top-rated and upcoming anime, filtered by
+  genre and format.
 - **AniList tracking** with a browser login, or fully local tracking.
 - **Skip openings, endings and recaps** automatically or at a key press, and
   optionally skip whole filler and recap episodes.
@@ -91,6 +93,7 @@ on your machine.
 | | <kbd>Esc</kbd> | Back |
 | | <kbd>Ctrl</kbd>+<kbd>C</kbd> | Quit |
 | Home | <kbd>/</kbd> | Search |
+| | <kbd>b</kbd> | Browse: this season, trending, popular, top rated, next season |
 | | <kbd>←</kbd> <kbd>→</kbd> | Continue watching, and your list tabs |
 | | <kbd>Enter</kbd> | Continue the selected show |
 | | <kbd>d</kbd> | Show details |
@@ -100,6 +103,8 @@ on your machine.
 | | <kbd>m</kbd> | Switch between sub and dub |
 | | <kbd>l</kbd> | Change the list status |
 | | <kbd>s</kbd> | Subtitle languages for this show |
+| Browse | <kbd>←</kbd> <kbd>→</kbd> | Switch list |
+| | <kbd>f</kbd> | Filter by genre and format |
 | Now playing | <kbd>n</kbd> / <kbd>p</kbd> | Next / previous episode |
 | | <kbd>f</kbd> | Try another provider |
 | | <kbd>x</kbd> | Stop |
@@ -113,6 +118,7 @@ The UI isn't required: every feature has a command.
 
 ```sh
 tsuzuki search frieren             # find the AniList ID
+tsuzuki discover trending --genre Action  # season, trending, popular, top, upcoming
 tsuzuki watch 154587               # resume, or start from episode 1
 tsuzuki watch 154587 5 --mode dub  # a specific episode
 tsuzuki watch 154587 --subs es,en  # subtitle languages for this watch ("off" hides them)
