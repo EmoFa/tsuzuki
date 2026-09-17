@@ -12,6 +12,7 @@ import (
 	"github.com/EmoFa/tsuzuki/internal/anilist"
 	"github.com/EmoFa/tsuzuki/internal/auth"
 	"github.com/EmoFa/tsuzuki/internal/browser"
+	"github.com/EmoFa/tsuzuki/internal/buildinfo"
 	"github.com/EmoFa/tsuzuki/internal/discord"
 	"github.com/EmoFa/tsuzuki/internal/domain"
 	"github.com/EmoFa/tsuzuki/internal/httpx"
@@ -27,6 +28,7 @@ import (
 	"github.com/EmoFa/tsuzuki/internal/streamcheck"
 	"github.com/EmoFa/tsuzuki/internal/streamproxy"
 	"github.com/EmoFa/tsuzuki/internal/tracker"
+	"github.com/EmoFa/tsuzuki/internal/update"
 )
 
 // HTTP returns the shared scraping client, with browser-based challenge solving
@@ -329,4 +331,28 @@ func (a *App) notify(msg string) {
 
 func (a *App) subtitlePrefs() domain.SubtitlePrefs {
 	return domain.SubtitlePrefs{Languages: a.Config.Subtitles.Languages, Show: a.Config.Subtitles.Show}
+}
+
+// UpdateStatus describes the latest release compared with this build.
+type UpdateStatus struct {
+	Current, Latest string
+	Available       bool
+	Command         string // how to upgrade this installation
+}
+
+// CheckUpdate compares this build with the latest release. cache may be nil.
+func (a *App) CheckUpdate(ctx context.Context, client *httpx.Client, cache update.Cache) (UpdateStatus, error) {
+	s := UpdateStatus{Current: buildinfo.Version}
+	r, err := (&update.Checker{Client: client, Cache: cache}).Latest(ctx)
+	if err != nil {
+		return s, err
+	}
+	s.Latest, s.Available = r.Version, update.Newer(buildinfo.Version, r.Version)
+	if exe, err := os.Executable(); err == nil {
+		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+			exe = resolved
+		}
+		s.Command = update.UpgradeCommand(exe)
+	}
+	return s, nil
 }

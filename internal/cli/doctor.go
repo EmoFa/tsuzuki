@@ -196,6 +196,10 @@ func serviceChecks(ctx context.Context, app *App, timeout time.Duration) []check
 			start := time.Now()
 			detail, err := f(ctx)
 			elapsed := time.Since(start).Round(100 * time.Millisecond)
+			var upd *updateAvailable
+			if errors.As(err, &upd) {
+				return check{name, statusWarn, fmt.Sprintf("%s is available (you have %s): %s", upd.Latest, upd.Current, upd.Command)}
+			}
 			if err != nil {
 				return check{name, statusFail, fmt.Sprintf("%s · %s", firstLineOf(err.Error()), elapsed)}
 			}
@@ -224,6 +228,19 @@ func serviceChecks(ctx context.Context, app *App, timeout time.Duration) []check
 				return "", err
 			}
 			return "reachable, login accepted for " + user.Name, nil
+		}),
+		timed("update", func(ctx context.Context) (string, error) {
+			if !app.Config.General.CheckUpdates {
+				return "checks off (general.check_updates = false)", nil
+			}
+			st, err := app.CheckUpdate(ctx, client, nil)
+			switch {
+			case err != nil:
+				return "", err
+			case st.Available:
+				return "", &updateAvailable{st}
+			}
+			return "up to date (" + st.Latest + ")", nil
 		}),
 		timed("aniskip", func(ctx context.Context) (string, error) {
 			// Frieren episode 1 has well-established skip times.
@@ -346,3 +363,8 @@ func discordCheck(ctx context.Context, app *App) check {
 	}
 	return check{"discord", statusOK, "connected as " + who}
 }
+
+// updateAvailable reports a newer release as a warning rather than a failure.
+type updateAvailable struct{ UpdateStatus }
+
+func (u *updateAvailable) Error() string { return "tsuzuki " + u.Latest + " is available" }

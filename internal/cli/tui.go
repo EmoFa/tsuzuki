@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/EmoFa/tsuzuki/internal/anilist"
+	"github.com/EmoFa/tsuzuki/internal/buildinfo"
 	"github.com/EmoFa/tsuzuki/internal/domain"
 	"github.com/EmoFa/tsuzuki/internal/session"
 	"github.com/EmoFa/tsuzuki/internal/skip"
@@ -159,6 +161,7 @@ func (s *tuiServices) EpisodeKinds(ctx context.Context, media anilist.Media) (ma
 
 func (s *tuiServices) Settings() tui.Settings {
 	return tui.Settings{
+		Version:    buildinfo.Version,
 		Config:     s.app.Config,
 		ConfigPath: s.app.ConfigPath,
 		DataDir:    s.app.Paths.DataDir,
@@ -176,4 +179,27 @@ func (s *tuiServices) SaveShowPrefs(ctx context.Context, p store.ShowPrefs) erro
 
 func (s *tuiServices) DeleteShowPrefs(ctx context.Context, mediaID int) error {
 	return s.store.DeleteShowPrefs(ctx, mediaID)
+}
+
+func (s *tuiServices) CheckUpdate(ctx context.Context, firstNotice bool) (tui.Update, error) {
+	if !s.app.Config.General.CheckUpdates {
+		return tui.Update{}, nil
+	}
+	client, err := s.app.HTTP(ctx)
+	if err != nil {
+		return tui.Update{}, err
+	}
+	st, err := s.app.CheckUpdate(ctx, client, s.store)
+	u := tui.Update{Current: st.Current, Latest: st.Latest, Available: st.Available, Command: st.Command}
+	if err != nil || !u.Available || !firstNotice {
+		return u, err
+	}
+	const notifiedKey = "update:notified"
+	if last, _, ok, _ := s.store.GetKV(ctx, notifiedKey); !ok || last != u.Latest {
+		u.Notify = true
+		if err := s.store.PutKV(ctx, notifiedKey, u.Latest); err != nil {
+			slog.Warn("remembering update notice", "err", err)
+		}
+	}
+	return u, nil
 }

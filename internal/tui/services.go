@@ -43,6 +43,18 @@ type Services interface {
 	ShowPrefs(ctx context.Context, mediaID int) (*store.ShowPrefs, error)
 	SaveShowPrefs(ctx context.Context, p store.ShowPrefs) error
 	DeleteShowPrefs(ctx context.Context, mediaID int) error
+
+	// CheckUpdate looks for a newer release (at most daily). With firstNotice,
+	// Update.Notify is true only the first time a given release is reported.
+	CheckUpdate(ctx context.Context, firstNotice bool) (Update, error)
+}
+
+// Update describes a newer release, if any.
+type Update struct {
+	Current, Latest string
+	Available       bool
+	Command         string
+	Notify          bool
 }
 
 // Account describes the AniList login.
@@ -58,6 +70,7 @@ func (a Account) Syncs() bool { return a.Backend == "anilist" && a.LoggedIn }
 
 // Settings is what the settings screen shows.
 type Settings struct {
+	Version    string
 	Config     config.Config
 	ConfigPath string
 	DataDir    string

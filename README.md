@@ -157,6 +157,8 @@ Provider notes and current status: [docs/providers](docs/providers/status.md).
 - **Providers:** searches and episode requests, as a browser would.
 - **Discord:** what you're watching, through the Discord app on your computer
   (`discord.enabled = false` turns it off).
+- **GitHub:** at most once a day, a request for the latest release number, to tell
+  you about updates (`general.check_updates = false` turns it off).
 
 Nothing else leaves your machine. There is no telemetry.
 

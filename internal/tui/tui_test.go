@@ -146,6 +146,10 @@ func (f *fakeServices) DeleteShowPrefs(_ context.Context, id int) error {
 	return nil
 }
 
+func (f *fakeServices) CheckUpdate(context.Context, bool) (Update, error) {
+	return Update{Current: "0.1.0", Latest: "0.1.0"}, nil
+}
+
 func (f *fakeServices) Settings() Settings {
 	return Settings{Config: config.Default(), ConfigPath: "/cfg/config.toml", DataDir: "/data", CacheDir: "/cache"}
 }

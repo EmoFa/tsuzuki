@@ -39,6 +39,7 @@ type General struct {
 	AutoplayNext        bool    `toml:"autoplay_next"`
 	WatchedThreshold    float64 `toml:"watched_threshold"`
 	ResumeRewindSeconds int     `toml:"resume_rewind_seconds"`
+	CheckUpdates        bool    `toml:"check_updates"`
 }
 
 type Providers struct {
@@ -117,6 +118,7 @@ func Default() Config {
 			AutoplayNext:        true,
 			WatchedThreshold:    0.85,
 			ResumeRewindSeconds: 5,
+			CheckUpdates:        true,
 		},
 		Providers: Providers{
 			Order:              []string{"anikoto", "senshi", "allanime", "animepahe"},

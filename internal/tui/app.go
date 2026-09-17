@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -142,6 +143,16 @@ func (m *Model) Init() tea.Cmd {
 	if m.svc.Account().Syncs() {
 		cmds = append(cmds, syncCmd(m.ctx, m.svc, true))
 	}
+	ctx, svc := m.ctx, m.svc
+	cmds = append(cmds, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		u, err := svc.CheckUpdate(ctx, true)
+		if err != nil || !u.Notify {
+			return nil
+		}
+		return NoticeMsg{Text: fmt.Sprintf("tsuzuki %s is available (you have %s). To upgrade: %s", u.Latest, u.Current, u.Command)}
+	})
 	return tea.Batch(cmds...)
 }
 

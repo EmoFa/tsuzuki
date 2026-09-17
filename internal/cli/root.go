@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -126,7 +127,7 @@ func NewRootCmd() (*cobra.Command, *App) {
 	root.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging")
 
 	root.AddCommand(
-		newVersionCmd(),
+		newVersionCmd(app),
 		newConfigCmd(app),
 		newSearchCmd(app),
 		newWatchCmd(app),
@@ -158,14 +159,27 @@ func versionString() string {
 	return s
 }
 
-func newVersionCmd() *cobra.Command {
+func newVersionCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		Use:         "version",
-		Short:       "Print the version",
+		Short:       "Print the version, and whether a newer release exists",
 		Args:        cobra.NoArgs,
 		Annotations: map[string]string{skipConfigAnnotation: "true"},
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Fprintln(cmd.OutOrStdout(), versionString())
+			// The config is optional here: a broken one shouldn't stop `version`.
+			if cfg, _, err := config.Load(app.ConfigPath); err == nil && !cfg.General.CheckUpdates {
+				return
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 3*time.Second)
+			defer cancel()
+			st, err := app.CheckUpdate(ctx, httpx.New(httpx.Options{Retries: -1}), nil)
+			switch {
+			case err != nil:
+				slog.Debug("update check", "err", err)
+			case st.Available:
+				fmt.Fprintf(cmd.OutOrStdout(), "tsuzuki %s is available. To upgrade: %s\n", st.Latest, st.Command)
+			}
 		},
 	}
 }

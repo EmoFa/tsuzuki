@@ -13,6 +13,8 @@ autoplay_next = true
 watched_threshold = 0.85
 # When resuming, start this many seconds before where you left off.
 resume_rewind_seconds = 5
+# Check GitHub once a day for a newer tsuzuki release and say how to upgrade.
+check_updates = true
 
 [providers]
 # Providers are tried in this order until one returns a working stream.

@@ -36,6 +36,7 @@ type settingsScreen struct {
 	lines   []string
 	offset  int
 	working string // "login" or "sync" while running
+	update  *Update
 }
 
 func newSettings(ctx context.Context, svc Services) *settingsScreen {
@@ -68,7 +69,16 @@ func (s *settingsScreen) build() {
 		sync = "off (tracking.backend = \"local\")"
 	}
 
+	version := s.svc.Settings().Version
+	if u := s.update; u != nil && u.Available {
+		version += " · " + styleWarn.Render(u.Latest+" available") + " · " + u.Command
+	} else if u != nil && u.Latest != "" {
+		version += " · up to date"
+	}
+
 	lines := []string{
+		section("tsuzuki"),
+		row("version", version),
 		section("AniList"),
 		row("account", login),
 		row("sync", sync),
@@ -121,7 +131,19 @@ var (
 	keySync  = key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "sync list"))
 )
 
-func (s *settingsScreen) Init() tea.Cmd    { return nil }
+type settingsUpdateMsg struct{ u Update }
+
+func (s *settingsScreen) Init() tea.Cmd {
+	ctx, svc := s.ctx, s.svc
+	return func() tea.Msg {
+		u, err := svc.CheckUpdate(ctx, false)
+		if err != nil {
+			return nil
+		}
+		return settingsUpdateMsg{u}
+	}
+}
+
 func (s *settingsScreen) Title() string    { return "Settings" }
 func (s *settingsScreen) Refresh() tea.Cmd { s.build(); return nil }
 
@@ -143,6 +165,9 @@ func (s *settingsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 		return s, tea.Batch(toast("Logged in to AniList as "+msg.user+". Syncing your list…", false), syncCmd(s.ctx, s.svc, false))
 	case syncDoneMsg:
 		s.working = ""
+		s.build()
+	case settingsUpdateMsg:
+		s.update = &msg.u
 		s.build()
 	case tea.KeyPressMsg:
 		switch {
