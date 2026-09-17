@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
@@ -94,7 +95,7 @@ func (d *detailsScreen) Title() string { return truncate(d.media.DisplayTitle(),
 
 func (d *detailsScreen) Init() tea.Cmd {
 	cmds := []tea.Cmd{d.loadProgress(), d.loadEntry(), d.loadKinds(), d.loadPrefs(), d.loadSequels()}
-	if d.media.AiredEpisodes() == 0 {
+	if d.needsProviderEpisodes() {
 		cmds = append(cmds, d.loadEpisodes())
 	}
 	return tea.Batch(cmds...)
@@ -205,6 +206,12 @@ func (d *detailsScreen) loadProgress() tea.Cmd {
 		p, err := svc.ShowProgress(ctx, id)
 		return detailsProgressMsg{p, err}
 	}
+}
+
+// needsProviderEpisodes: AniList doesn't say how many episodes have aired, so
+// ask a provider — unless the show hasn't started, when there's nothing to find.
+func (d *detailsScreen) needsProviderEpisodes() bool {
+	return d.media.AiredEpisodes() == 0 && !d.media.NotYetAired()
 }
 
 func (d *detailsScreen) loadEpisodes() tea.Cmd {
@@ -338,6 +345,8 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 			return d, d.startEditingSubs()
 		case key.Matches(msg, keySequel) && len(d.sequels) > 0:
 			return d, push(newDetails(d.ctx, d.svc, d.sequels[0], d.mode))
+		case (key.Matches(msg, keyPlay) || key.Matches(msg, keyContinue)) && d.media.NotYetAired():
+			return d, toast(fmt.Sprintf("%s hasn't aired yet · %s", d.media.DisplayTitle(), d.media.PremiereLabel(time.Now())), false)
 		case key.Matches(msg, keyPlay):
 			if len(d.numbers) == 0 {
 				return d, nil
@@ -351,7 +360,7 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 			} else {
 				d.mode = domain.Sub
 			}
-			if d.media.AiredEpisodes() == 0 {
+			if d.needsProviderEpisodes() {
 				return d, d.loadEpisodes()
 			}
 			return d, toast("Mode: "+string(d.mode), false)
@@ -462,6 +471,12 @@ func (d *detailsScreen) View(width, height int) string {
 		return b.String()
 	case d.episodesErr != nil && len(d.numbers) == 0:
 		b.WriteString(styleBad.Render("Couldn't list episodes: " + firstLine(d.episodesErr.Error())))
+		return b.String()
+	case len(d.numbers) == 0 && d.media.NotYetAired():
+		b.WriteString(styleMuted.Render("Hasn't aired yet · " + d.media.PremiereLabel(time.Now())))
+		if d.entry == nil {
+			b.WriteString("\n" + styleMuted.Render("Press l to add it to your Planning list."))
+		}
 		return b.String()
 	case len(d.numbers) == 0:
 		b.WriteString(styleMuted.Render("No episodes have aired yet."))

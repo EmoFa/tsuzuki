@@ -31,6 +31,9 @@ const (
 
 var ErrUnavailable = errors.New("episode not available from any provider")
 
+// ErrNotAired means the show's first episode hasn't aired.
+var ErrNotAired = errors.New("hasn't aired yet")
+
 // errPlaybackFailed marks a stream that resolved but didn't play through; the
 // episode is retried on the next provider.
 var errPlaybackFailed = errors.New("playback failed")
@@ -174,6 +177,9 @@ type Request struct {
 // Watch plays req and, with autoplay, the following episodes until the user
 // stops, an episode can't be found, or ctx ends.
 func (s *Session) Watch(ctx context.Context, req Request) error {
+	if req.Media.NotYetAired() {
+		return fmt.Errorf("%s %w: %s", req.Media.DisplayTitle(), ErrNotAired, req.Media.PremiereLabel(time.Now()))
+	}
 	ep := req.Episode
 	if ep == 0 {
 		var err error

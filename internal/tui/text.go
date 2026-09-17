@@ -77,6 +77,9 @@ func mediaMeta(m anilist.Media) string {
 		parts = append(parts, strconv.Itoa(m.Year))
 	}
 	switch aired := m.AiredEpisodes(); {
+	case m.NotYetAired() && m.Episodes > 0:
+		parts = append(parts, fmt.Sprintf("%d eps", m.Episodes))
+	case m.NotYetAired():
 	case m.NextAiringEpisode != nil && m.Episodes > 0:
 		parts = append(parts, fmt.Sprintf("%d/%d eps", aired, m.Episodes))
 	case m.NextAiringEpisode != nil:

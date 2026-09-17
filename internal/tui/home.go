@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -147,6 +148,9 @@ func (h *homeScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 		it := h.items[h.list.cursor]
 		switch {
 		case key.Matches(msg, keyResume):
+			if it.media.NotYetAired() {
+				return h, toast(fmt.Sprintf("%s hasn't aired yet · %s", it.media.DisplayTitle(), it.media.PremiereLabel(time.Now())), false)
+			}
 			if caughtUp(it) {
 				return h, toast(fmt.Sprintf("You're caught up on %s.", it.media.DisplayTitle()), false)
 			}

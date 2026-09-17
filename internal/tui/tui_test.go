@@ -631,16 +631,27 @@ func TestFinishingPanel(t *testing.T) {
 		t.Fatalf("entries = %+v", svc.entries)
 	}
 
-	// Enter starts the sequel.
-	_, cmd = m.Update(press("enter"))
-	var started *session.Request
-	for _, msg := range runBatch(cmd) {
-		if w, ok := msg.(watchMsg); ok {
-			started = &w.req
+	// Enter on an unaired sequel explains instead of searching providers.
+	started := func() *session.Request {
+		_, cmd := m.Update(press("enter"))
+		for _, msg := range runBatch(cmd) {
+			switch msg := msg.(type) {
+			case watchMsg:
+				return &msg.req
+			case toastMsg:
+				toasts = append(toasts, msg.text)
+			}
 		}
+		return nil
 	}
-	if started == nil || started.Media.ID != frieren3.ID || started.Mode != domain.Sub {
-		t.Fatalf("enter didn't start the sequel: %+v", started)
+	if r := started(); r != nil || !strings.Contains(toasts[len(toasts)-1], "hasn't aired yet") {
+		t.Fatalf("unaired sequel: started %+v, toasts %q", r, toasts)
+	}
+
+	// Once it has aired, enter starts it.
+	p.finish.sequels[0].Status = "RELEASING"
+	if r := started(); r == nil || r.Media.ID != frieren3.ID || r.Mode != domain.Sub {
+		t.Fatalf("enter didn't start the sequel: %+v", r)
 	}
 
 	// esc closes the panel.
@@ -664,5 +675,37 @@ func TestFinishingSkipsRatingAndNoSequel(t *testing.T) {
 	}
 	if view := p.View(80, 20); !strings.Contains(view, "No sequel") {
 		t.Fatalf("view:\n%s", view)
+	}
+}
+
+func TestDetailsForUpcomingShow(t *testing.T) {
+	svc := &fakeServices{}
+	upcoming := anilist.Media{ID: 77, Title: anilist.Title{English: "Next Season"}, Status: "NOT_YET_RELEASED", StartDate: anilist.FuzzyDate{Year: 2027, Month: 1}}
+	d := newDetails(context.Background(), svc, upcoming, domain.Sub)
+	for _, msg := range runBatch(d.Init()) {
+		if msg != nil {
+			d.Update(msg)
+		}
+	}
+	if d.loadingEpisodes || d.episodesErr != nil {
+		t.Fatalf("looked up episodes for an unaired show: loading=%v err=%v", d.loadingEpisodes, d.episodesErr)
+	}
+	view := d.View(100, 30)
+	if !strings.Contains(view, "Hasn't aired yet · Starts January 2027") || strings.Contains(view, "Couldn't list episodes") || strings.Contains(view, "so far") {
+		t.Fatalf("view:\n%s", view)
+	}
+	for _, k := range []tea.KeyPressMsg{press("enter"), {Code: 'c', Text: "c"}, {Code: 'm', Text: "m"}} {
+		_, cmd := d.Update(k)
+		for _, msg := range runBatch(cmd) {
+			if _, ok := msg.(watchMsg); ok {
+				t.Fatalf("%v started a watch", k)
+			}
+		}
+		if d.loadingEpisodes {
+			t.Fatalf("%v looked up episodes", k)
+		}
+	}
+	if len(svc.watches) != 0 {
+		t.Fatal("watched an unaired show")
 	}
 }

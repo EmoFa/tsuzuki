@@ -686,3 +686,16 @@ func TestFinishedShow(t *testing.T) {
 		})
 	}
 }
+
+func TestUpcomingShowIsNotSearched(t *testing.T) {
+	p := &fakeProvider{name: "senshi", eps: 3, streamsErr: errors.New("should not be asked")}
+	h := newHarness(t, []provider.Provider{p})
+	upcoming := anilist.Media{ID: 77, Title: anilist.Title{English: "Next Season"}, Status: "NOT_YET_RELEASED", StartDate: anilist.FuzzyDate{Year: 2027, Month: 1}}
+	err := h.sess.Watch(context.Background(), Request{Media: upcoming, Mode: domain.Sub})
+	if !errors.Is(err, ErrNotAired) || !strings.Contains(err.Error(), "Next Season hasn't aired yet: Starts January 2027") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(h.statuses) != 0 {
+		t.Errorf("statuses = %+v", h.statuses)
+	}
+}

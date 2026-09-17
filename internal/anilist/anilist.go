@@ -31,7 +31,7 @@ var (
 
 const mediaFields = `id idMal title { romaji english native } synonyms format status episodes duration
 season seasonYear coverImage { extraLarge large color } bannerImage description(asHtml: false)
-averageScore genres isAdult nextAiringEpisode { episode airingAt }`
+averageScore genres isAdult nextAiringEpisode { episode airingAt } startDate { year month day }`
 
 type Media struct {
 	ID       int      `json:"id"`
@@ -55,6 +55,14 @@ type Media struct {
 	Genres            []string       `json:"genres"`
 	IsAdult           bool           `json:"isAdult"`
 	NextAiringEpisode *AiringEpisode `json:"nextAiringEpisode"`
+	StartDate         FuzzyDate      `json:"startDate"`
+}
+
+// FuzzyDate is a date AniList may only partly know; unknown parts are 0.
+type FuzzyDate struct {
+	Year  int `json:"year"`
+	Month int `json:"month"`
+	Day   int `json:"day"`
 }
 
 type AiringEpisode struct {
@@ -87,6 +95,47 @@ func (m Media) Titles() []string {
 		}
 	}
 	return out
+}
+
+// NotYetAired reports a show whose first episode hasn't aired.
+func (m Media) NotYetAired() bool {
+	if m.Status != "NOT_YET_RELEASED" {
+		return false
+	}
+	e := m.NextAiringEpisode
+	switch {
+	case e == nil:
+		return true
+	case e.Episode > 1:
+		return false
+	}
+	// Details may be cached from before the premiere.
+	return e.AiringAt == 0 || time.Now().Before(time.Unix(e.AiringAt, 0))
+}
+
+// PremiereLabel says when a show that hasn't aired starts, as precisely as
+// AniList knows: "Episode 1 airs Sat, Oct 3", "Starts October 2026", "Expected Fall 2026".
+func (m Media) PremiereLabel(now time.Time) string {
+	if e := m.NextAiringEpisode; e != nil && e.Episode <= 1 && e.AiringAt > 0 {
+		t := time.Unix(e.AiringAt, 0).In(now.Location())
+		layout := "Mon, Jan 2 at 15:04"
+		if t.Year() != now.Year() {
+			layout = "Mon, Jan 2, 2006"
+		}
+		return "Episode 1 airs " + t.Format(layout)
+	}
+	d := m.StartDate
+	switch {
+	case d.Year > 0 && d.Month > 0 && d.Day > 0:
+		return "Starts " + time.Date(d.Year, time.Month(d.Month), d.Day, 0, 0, 0, 0, time.UTC).Format("January 2, 2006")
+	case d.Year > 0 && d.Month > 0:
+		return "Starts " + time.Month(d.Month).String() + " " + strconv.Itoa(d.Year)
+	case m.Season != "" && m.Year > 0:
+		return "Expected " + strings.ToUpper(m.Season[:1]) + strings.ToLower(m.Season[1:]) + " " + strconv.Itoa(m.Year)
+	case d.Year > 0:
+		return "Expected " + strconv.Itoa(d.Year)
+	}
+	return "Release date not announced"
 }
 
 // AiredEpisodes is how many episodes exist so far, or 0 when unknown.

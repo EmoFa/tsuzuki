@@ -231,3 +231,34 @@ func TestAuthenticatedCalls(t *testing.T) {
 		t.Errorf("unauthenticated client sent %q", auth[0])
 	}
 }
+
+func TestNotYetAiredAndPremiereLabel(t *testing.T) {
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	future := now.Add(72 * time.Hour).Unix()
+	past := time.Now().Add(-time.Hour).Unix()
+	for _, tc := range []struct {
+		name  string
+		m     Media
+		unair bool
+		label string
+	}{
+		{"finished", Media{Status: "FINISHED"}, false, ""},
+		{"airing", Media{Status: "RELEASING", NextAiringEpisode: &AiringEpisode{Episode: 4, AiringAt: future}}, false, ""},
+		{"first episode scheduled", Media{Status: "NOT_YET_RELEASED", NextAiringEpisode: &AiringEpisode{Episode: 1, AiringAt: future}}, true, "Episode 1 airs Sun, Sep 20 at 12:00"},
+		{"stale cache after premiere", Media{Status: "NOT_YET_RELEASED", NextAiringEpisode: &AiringEpisode{Episode: 1, AiringAt: past}}, false, ""},
+		{"full start date", Media{Status: "NOT_YET_RELEASED", StartDate: FuzzyDate{2027, 1, 9}}, true, "Starts January 9, 2027"},
+		{"month only", Media{Status: "NOT_YET_RELEASED", StartDate: FuzzyDate{Year: 2026, Month: 10}}, true, "Starts October 2026"},
+		{"season", Media{Status: "NOT_YET_RELEASED", Season: "FALL", Year: 2026, StartDate: FuzzyDate{Year: 2026}}, true, "Expected Fall 2026"},
+		{"year only", Media{Status: "NOT_YET_RELEASED", StartDate: FuzzyDate{Year: 2027}}, true, "Expected 2027"},
+		{"unknown", Media{Status: "NOT_YET_RELEASED"}, true, "Release date not announced"},
+	} {
+		if got := tc.m.NotYetAired(); got != tc.unair {
+			t.Errorf("%s: NotYetAired = %v", tc.name, got)
+		}
+		if tc.label != "" {
+			if got := tc.m.PremiereLabel(now); got != tc.label {
+				t.Errorf("%s: label = %q, want %q", tc.name, got, tc.label)
+			}
+		}
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -114,6 +115,9 @@ func (f *finishPanel) update(msg tea.Msg) tea.Cmd {
 		next := f.sequels[f.cursor]
 		switch {
 		case key.Matches(msg, keyWatchNext):
+			if next.NotYetAired() {
+				return toast(fmt.Sprintf("%s hasn't aired yet · %s. Press p to add it to Planning.", next.DisplayTitle(), next.PremiereLabel(time.Now())), false)
+			}
 			return watch(session.Request{Media: next, Mode: p.req.Mode})
 		case key.Matches(msg, keyPlanNext):
 			ctx, svc := p.ctx, p.svc
