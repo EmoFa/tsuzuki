@@ -221,6 +221,8 @@ func TestBuildArgs(t *testing.T) {
 
 	want := []string{
 		"--input-ipc-server=/run/tsuzuki.sock",
+		"--keep-open=no",
+		"--idle=no",
 		"--no-terminal",
 		"--force-media-title=Frieren - Episode 1",
 		"--start=83.500",

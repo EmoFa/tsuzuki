@@ -52,7 +52,7 @@ The provider that last worked for a show is tried first next time.
 | Key | Default | Description |
 |---|---|---|
 | `player.mpv_path` | `""` | Path to mpv, or the folder containing it. Empty searches the `PATH` and the usual install locations: on Windows, the folder `tsuzuki.exe` is in, mpv registered with `mpv --register`, and the Program Files, winget, Scoop and Chocolatey folders. On Windows, write the path in single quotes so backslashes are kept: `mpv_path = 'C:\Tools\mpv\mpv.exe'`. |
-| `player.extra_args` | `[]` | Extra mpv arguments, e.g. `["--fullscreen", "--volume=70"]`. They come after tsuzuki's own arguments, so they win: avoid `--start` (it overrides resuming), `--input-ipc-server` and `--idle`, which tsuzuki relies on. mpv's own `mpv.conf` is also read unless you pass `--no-config`. |
+| `player.extra_args` | `[]` | Extra mpv arguments, e.g. `["--fullscreen", "--volume=70"]`. They come after tsuzuki's own arguments, so they win: avoid `--start` (it overrides resuming), `--input-ipc-server`, `--idle` and `--keep-open`, which tsuzuki relies on. mpv's own `mpv.conf` is also read unless you pass `--no-config`, except that tsuzuki always turns off `keep-open` and `idle` so mpv closes when an episode ends. |
 
 ## `[browser]`
 

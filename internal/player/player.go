@@ -108,7 +108,12 @@ func connect(ctx context.Context, addr string, exited <-chan struct{}) (net.Conn
 }
 
 func buildArgs(req Request, ipcAddr string, opts Options) []string {
-	args := []string{"--input-ipc-server=" + ipcAddr}
+	args := []string{
+		"--input-ipc-server=" + ipcAddr,
+		// mpv must exit when the episode ends, whatever mpv.conf says, or
+		// tsuzuki can't tell it finished (autoplay, tracking the last episode).
+		"--keep-open=no", "--idle=no",
+	}
 	if opts.Output == nil {
 		args = append(args, "--no-terminal")
 	}
