@@ -246,9 +246,18 @@ func (f *fakeServices) SetScore(_ context.Context, id int, score float64) (strin
 
 var frieren3 = anilist.Media{ID: 999001, Title: anilist.Title{English: "Frieren: Beyond Journey’s End Season 3"}, Format: "TV", Status: "NOT_YET_RELEASED"}
 
+var frieren1 = anilist.Media{ID: 154587, Episodes: 28, Title: anilist.Title{English: "Frieren: Beyond Journey’s End"}, Format: "TV", Status: "FINISHED"}
+
 func (f *fakeServices) Sequels(_ context.Context, id int) ([]anilist.Media, error) {
 	if id == frieren2.ID {
 		return []anilist.Media{frieren3}, nil
+	}
+	return nil, nil
+}
+
+func (f *fakeServices) Prequels(_ context.Context, id int) ([]anilist.Media, error) {
+	if id == frieren2.ID {
+		return []anilist.Media{frieren1}, nil
 	}
 	return nil, nil
 }
@@ -420,10 +429,35 @@ func TestDetailsMarkers(t *testing.T) {
 	for _, msg := range runBatch(d.loadSequels()) {
 		d.Update(msg)
 	}
+	for _, msg := range runBatch(d.loadPrequels()) {
+		d.Update(msg)
+	}
 	view := d.View(100, 30)
-	for _, want := range []string{"filler", "✓", "▶", "next", "c continues with episode 3", "Following the exam,", "trio heads north & beyond.", "Sequel: Frieren: Beyond Journey’s End Season 3 · r to open"} {
+	for _, want := range []string{"filler", "✓", "▶", "next", "c continues with episode 3", "Following the exam,", "trio heads north & beyond.", "Sequel: Frieren: Beyond Journey’s End Season 3 · r to open",
+		"Prequel: Frieren: Beyond Journey’s End · p to open"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestDetailsOpensPrequelAndSequel(t *testing.T) {
+	svc := &fakeServices{}
+	d := newDetails(context.Background(), svc, frieren2, domain.Sub)
+	for _, msg := range append(runBatch(d.loadSequels()), runBatch(d.loadPrequels())...) {
+		d.Update(msg)
+	}
+	for _, tc := range []struct{ key, want string }{{"p", frieren1.DisplayTitle()}, {"r", frieren3.DisplayTitle()}} {
+		_, cmd := d.Update(press(tc.key))
+		if cmd == nil {
+			t.Fatalf("%q did nothing", tc.key)
+		}
+		msg, ok := cmd().(pushMsg)
+		if !ok {
+			t.Fatalf("%q sent %T, want pushMsg", tc.key, cmd())
+		}
+		if got := msg.s.Title(); got != tc.want {
+			t.Errorf("%q opened %q, want %q", tc.key, got, tc.want)
 		}
 	}
 }

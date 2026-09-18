@@ -57,6 +57,10 @@ type detailsSequelsMsg struct {
 	sequels []anilist.Media
 }
 
+type detailsPrequelsMsg struct {
+	prequels []anilist.Media
+}
+
 type detailsPrefsMsg struct {
 	prefs *store.ShowPrefs
 }
@@ -105,6 +109,7 @@ type detailsScreen struct {
 	jumping       bool
 	jumpInput     textinput.Model
 	sequels       []anilist.Media
+	prequels      []anilist.Media
 	prefs         *store.ShowPrefs // nil: the show uses the config
 	editingSubs   bool
 	subsInput     textinput.Model
@@ -120,7 +125,7 @@ func newDetails(ctx context.Context, svc Services, media anilist.Media, mode dom
 func (d *detailsScreen) Title() string { return truncate(d.media.DisplayTitle(), 40) }
 
 func (d *detailsScreen) Init() tea.Cmd {
-	cmds := []tea.Cmd{d.loadProgress(), d.loadEntry(), d.loadKinds(), d.loadPrefs(), d.loadSequels(), d.loadRound()}
+	cmds := []tea.Cmd{d.loadProgress(), d.loadEntry(), d.loadKinds(), d.loadPrefs(), d.loadSequels(), d.loadPrequels(), d.loadRound()}
 	if d.needsProviderEpisodes() {
 		cmds = append(cmds, d.loadEpisodes())
 	}
@@ -173,6 +178,17 @@ func (d *detailsScreen) loadSequels() tea.Cmd {
 			return nil
 		}
 		return detailsSequelsMsg{s}
+	}
+}
+
+func (d *detailsScreen) loadPrequels() tea.Cmd {
+	ctx, svc, id := d.ctx, d.svc, d.media.ID
+	return func() tea.Msg {
+		p, err := svc.Prequels(ctx, id)
+		if err != nil {
+			return nil
+		}
+		return detailsPrequelsMsg{p}
 	}
 }
 
@@ -281,6 +297,7 @@ var (
 	keyStatus   = key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "list status"))
 	keySubs     = key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "subtitles"))
 	keySequel   = key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "sequel"))
+	keyPrequel  = key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "prequel"))
 	keyRewatch  = key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "rewatch"))
 	keyWatched  = key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "mark watched"))
 	keyThrough  = key.NewBinding(key.WithKeys("W"), key.WithHelp("W", "mark up to here"))
@@ -315,6 +332,9 @@ func (d *detailsScreen) Help() []key.Binding {
 	keys := []key.Binding{keyPlay, keyContinue, keyJump, keyWatched, keyThrough, keyMode, keyStatus, keySubs, keyRewatch}
 	if len(d.sequels) > 0 {
 		keys = append(keys, keySequel)
+	}
+	if len(d.prequels) > 0 {
+		keys = append(keys, keyPrequel)
 	}
 	return keys
 }
@@ -355,6 +375,9 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 
 	case detailsSequelsMsg:
 		d.sequels = msg.sequels
+
+	case detailsPrequelsMsg:
+		d.prequels = msg.prequels
 
 	case detailsRoundMsg:
 		d.round, d.beforeThrough, d.watchedBefore = msg.round, msg.through, msg.watched
@@ -470,6 +493,8 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 			return d, nil
 		case key.Matches(msg, keySequel) && len(d.sequels) > 0:
 			return d, push(newDetails(d.ctx, d.svc, d.sequels[0], d.mode))
+		case key.Matches(msg, keyPrequel) && len(d.prequels) > 0:
+			return d, push(newDetails(d.ctx, d.svc, d.prequels[0], d.mode))
 		case (key.Matches(msg, keyPlay) || key.Matches(msg, keyContinue)) && d.media.NotYetAired():
 			return d, toast(fmt.Sprintf("%s hasn't aired yet · %s", d.media.DisplayTitle(), d.media.PremiereLabel(time.Now())), false)
 		case key.Matches(msg, keyPlay):
@@ -610,12 +635,11 @@ func (d *detailsScreen) View(width, height int) string {
 		b.WriteString(styleMuted.Render("Not on your list · l to add") + "\n")
 	}
 	b.WriteString(d.subtitlesLine(width) + "\n")
-	if len(d.sequels) > 0 {
-		var names []string
-		for _, s := range d.sequels {
-			names = append(names, s.DisplayTitle())
-		}
-		b.WriteString(styleInfo.Render(truncate("Sequel: "+strings.Join(names, ", ")+" · r to open", width)) + "\n")
+	if line := relatedLine("Prequel", d.prequels, "p", width); line != "" {
+		b.WriteString(line + "\n")
+	}
+	if line := relatedLine("Sequel", d.sequels, "r", width); line != "" {
+		b.WriteString(line + "\n")
 	}
 	if desc := plainDescription(m.Description); desc != "" {
 		// Leave room for clampLines' ellipsis so it never wraps.
@@ -760,4 +784,17 @@ func (d *detailsScreen) setWatched(from, to float64, watched bool) tea.Cmd {
 		note, err := svc.SetWatched(ctx, media, from, to, watched)
 		return detailsWatchedMsg{note, err}
 	}
+}
+
+// relatedLine names a show's prequels or sequels and the key that opens the
+// first of them.
+func relatedLine(label string, related []anilist.Media, openKey string, width int) string {
+	if len(related) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(related))
+	for _, m := range related {
+		names = append(names, m.DisplayTitle())
+	}
+	return styleInfo.Render(truncate(label+": "+strings.Join(names, ", ")+" · "+openKey+" to open", width))
 }

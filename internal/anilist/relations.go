@@ -61,10 +61,16 @@ func (c *Client) Relations(ctx context.Context, id int) ([]Relation, error) {
 }
 
 // Sequels picks the anime sequels (not music videos) from rels, earliest first.
-func Sequels(rels []Relation) []Media {
+func Sequels(rels []Relation) []Media { return related(rels, "SEQUEL") }
+
+// Prequels picks the anime prequels the same way, so a show can be followed
+// back to where it started.
+func Prequels(rels []Relation) []Media { return related(rels, "PREQUEL") }
+
+func related(rels []Relation, relation string) []Media {
 	var out []Media
 	for _, r := range rels {
-		if r.Type == "SEQUEL" && r.Kind == "ANIME" && r.Media.Format != "MUSIC" && !r.Media.IsAdult {
+		if r.Type == relation && r.Kind == "ANIME" && r.Media.Format != "MUSIC" && !r.Media.IsAdult {
 			out = append(out, r.Media)
 		}
 	}

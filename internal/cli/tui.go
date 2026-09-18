@@ -232,6 +232,15 @@ func (s *tuiServices) Sequels(ctx context.Context, mediaID int) ([]anilist.Media
 	return anilist.Sequels(rels), nil
 }
 
+func (s *tuiServices) Prequels(ctx context.Context, mediaID int) ([]anilist.Media, error) {
+	// Relations are cached, so asking twice for one show costs one request.
+	rels, err := s.anilist.Relations(ctx, mediaID)
+	if err != nil {
+		return nil, err
+	}
+	return anilist.Prequels(rels), nil
+}
+
 func (s *tuiServices) StartRewatch(ctx context.Context, mediaID int) (string, error) {
 	st, err := s.app.Store(ctx)
 	if err != nil {

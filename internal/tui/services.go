@@ -63,6 +63,9 @@ type Services interface {
 	// Sequels lists a show's anime sequels, from AniList.
 	Sequels(ctx context.Context, mediaID int) ([]anilist.Media, error)
 
+	// Prequels lists a show's anime prequels, from AniList.
+	Prequels(ctx context.Context, mediaID int) ([]anilist.Media, error)
+
 	// CheckUpdate looks for a newer release (at most daily). With firstNotice,
 	// Update.Notify is true only the first time a given release is reported.
 	CheckUpdate(ctx context.Context, firstNotice bool) (Update, error)

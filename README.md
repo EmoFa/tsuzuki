@@ -114,7 +114,7 @@ so only what you actually play here turns up under **Continue watching**.
 | | <kbd>m</kbd> | Switch between sub and dub |
 | | <kbd>l</kbd> | Change the list status |
 | | <kbd>s</kbd> | Subtitle languages for this show |
-| | <kbd>r</kbd> | Open the sequel |
+| | <kbd>r</kbd> / <kbd>p</kbd> | Open the sequel / the prequel |
 | | <kbd>R</kbd> | Rewatch from episode 1 (earlier watch shown faintly) |
 | Browse | <kbd>←</kbd> <kbd>→</kbd> | Switch list |
 | | <kbd>f</kbd> | Filter by genre and format |
