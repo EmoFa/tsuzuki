@@ -75,7 +75,8 @@ tsuzuki doctor
 
 Run `tsuzuki` to open the terminal UI. Press <kbd>/</kbd> to search, pick a show,
 and press <kbd>Enter</kbd> on an episode. Next time, your shows are on the home
-screen under **Continue watching**.
+screen under **Continue watching**, which drops a show once it's finished (and
+brings it back if you start a rewatch).
 
 To keep AniList in sync, log in once:
 

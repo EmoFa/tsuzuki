@@ -73,13 +73,21 @@ func (f *fakeServices) Media(_ context.Context, id int) (anilist.Media, error) {
 	return anilist.Media{}, errors.New("not found")
 }
 
-func (f *fakeServices) RecentShows(context.Context, int) ([]store.Progress, error) {
+func (f *fakeServices) RecentShows(_ context.Context, limit int) ([]store.Progress, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if len(f.progress) == 0 {
 		return nil, nil
 	}
-	return f.progress[len(f.progress)-1:], nil
+	// The most recent episode of each show, newest first, like the store.
+	seen, out := map[int]bool{}, []store.Progress{}
+	for i := len(f.progress) - 1; i >= 0 && len(out) < limit; i-- {
+		if p := f.progress[i]; !seen[p.MediaID] {
+			seen[p.MediaID] = true
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeServices) ShowProgress(context.Context, int) ([]store.Progress, error) {
@@ -112,10 +120,19 @@ func (f *fakeServices) Watch(ctx context.Context, req session.Request, onStatus 
 	return ctx.Err()
 }
 
-func (f *fakeServices) ListEntries(context.Context, string) ([]store.ListEntry, error) {
+func (f *fakeServices) ListEntries(_ context.Context, status string) ([]store.ListEntry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.entries, nil
+	if status == "" {
+		return f.entries, nil
+	}
+	var out []store.ListEntry
+	for _, e := range f.entries {
+		if e.Status == status {
+			out = append(out, e)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeServices) ListEntry(_ context.Context, id int) (*store.ListEntry, error) {
@@ -998,5 +1015,46 @@ func TestRewatchDimsTheEarlierWatch(t *testing.T) {
 	marks = marksIn(d, 3)
 	if marks[0] != "done" || marks[1] != "next" || marks[2] != "dim" {
 		t.Fatalf("during the rewatch: %v, want [done next dim]", marks[:3])
+	}
+}
+
+func TestHomeHidesFinishedShows(t *testing.T) {
+	svc := &fakeServices{}
+	svc.progress = []store.Progress{
+		{MediaID: frieren2.ID, Episode: 10, Completed: true, UpdatedAt: time.Now()},
+		{MediaID: 555, Episode: 3, Completed: true, UpdatedAt: time.Now().Add(-time.Hour)},
+	}
+	svc.entries = []store.ListEntry{{MediaID: frieren2.ID, Status: "COMPLETED", Progress: 10, UpdatedAt: time.Now()}}
+
+	h := newHome(context.Background(), svc)
+	for _, msg := range runBatch(h.load()) {
+		h.Update(msg)
+	}
+	if len(h.items) != 1 || h.items[0].media.ID != 555 {
+		t.Fatalf("continue watching = %+v, want only the unfinished show", h.items)
+	}
+
+	// With everything finished, the tab says so instead of "nothing watched yet".
+	svc.entries = []store.ListEntry{
+		{MediaID: frieren2.ID, Status: "COMPLETED", UpdatedAt: time.Now()},
+		{MediaID: 555, Status: "COMPLETED", UpdatedAt: time.Now()},
+	}
+	for _, msg := range runBatch(h.load()) {
+		h.Update(msg)
+	}
+	if view := h.View(100, 20); !strings.Contains(view, "everything you've watched is finished") {
+		t.Fatalf("empty view:\n%s", view)
+	}
+
+	// Rewatching it brings it back.
+	svc.entries = []store.ListEntry{
+		{MediaID: frieren2.ID, Status: "REPEATING", UpdatedAt: time.Now()},
+		{MediaID: 555, Status: "CURRENT", UpdatedAt: time.Now()},
+	}
+	for _, msg := range runBatch(h.load()) {
+		h.Update(msg)
+	}
+	if len(h.items) != 2 {
+		t.Fatalf("after starting a rewatch = %+v, want both", h.items)
 	}
 }

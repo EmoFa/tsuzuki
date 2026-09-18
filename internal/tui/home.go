@@ -18,6 +18,10 @@ import (
 
 const recentLimit = 30
 
+// recentFetch is how many recent shows to read before finished ones are
+// dropped, so the tab still fills up when several have been completed.
+const recentFetch = 3 * recentLimit
+
 // homeTab is "continue watching" (status "") or one list status.
 type homeTab struct {
 	title  string
@@ -43,17 +47,20 @@ type homeItem struct {
 type homeLoadedMsg struct {
 	tab   int
 	items []homeItem
-	err   error
+	// allFinished: everything watched is finished, so nothing is on the go.
+	allFinished bool
+	err         error
 }
 
 type homeScreen struct {
-	ctx     context.Context
-	svc     Services
-	tab     int
-	loading bool
-	err     error
-	items   []homeItem
-	list    list
+	ctx         context.Context
+	svc         Services
+	tab         int
+	loading     bool
+	err         error
+	items       []homeItem
+	allFinished bool
+	list        list
 }
 
 func newHome(ctx context.Context, svc Services) *homeScreen {
@@ -77,12 +84,28 @@ func (h *homeScreen) load() tea.Cmd {
 			return m
 		}
 		if status := homeTabs[tab].status; status == "" {
-			recent, err := svc.RecentShows(ctx, recentLimit)
+			recent, err := svc.RecentShows(ctx, recentFetch)
 			if err != nil {
 				return homeLoadedMsg{tab: tab, err: err}
 			}
+			// A show you've finished belongs on the Completed tab, not here.
+			// Rewatching one puts it back, since its status changes.
+			finished, err := svc.ListEntries(ctx, tracker.Completed)
+			if err != nil {
+				return homeLoadedMsg{tab: tab, err: err}
+			}
+			done := map[int]bool{}
+			for _, e := range finished {
+				done[e.MediaID] = true
+			}
 			for i := range recent {
+				if done[recent[i].MediaID] || len(items) == recentLimit {
+					continue
+				}
 				items = append(items, homeItem{media: media(recent[i].MediaID), progress: &recent[i]})
+			}
+			if len(items) == 0 && len(recent) > 0 {
+				return homeLoadedMsg{tab: tab, allFinished: true}
 			}
 		} else {
 			entries, err := svc.ListEntries(ctx, status)
@@ -121,7 +144,7 @@ func (h *homeScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 		}
 		h.loading, h.err = false, msg.err
 		if msg.err == nil {
-			h.items = msg.items
+			h.items, h.allFinished = msg.items, msg.allFinished
 			h.list.setLen(len(h.items))
 		}
 	case tea.KeyPressMsg:
@@ -198,6 +221,11 @@ func (h *homeScreen) View(width, height int) string {
 		return b.String()
 	case h.err != nil:
 		b.WriteString(styleBad.Render("Couldn't load: " + h.err.Error()))
+		return b.String()
+	case len(h.items) == 0 && h.tab == 0 && h.allFinished:
+		b.WriteString("Nothing on the go: everything you've watched is finished.\n\n")
+		b.WriteString(styleMuted.Render("Finished shows are on the Completed tab. ") +
+			"Press " + styleKey.Render("/") + " to search or " + styleKey.Render("b") + " to browse.")
 		return b.String()
 	case len(h.items) == 0 && h.tab == 0:
 		b.WriteString("Nothing watched yet.\n\n")
