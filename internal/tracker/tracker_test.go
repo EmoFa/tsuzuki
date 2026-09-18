@@ -211,3 +211,25 @@ func TestSetScore(t *testing.T) {
 		t.Fatalf("flush = %d %v, remote %v", n, err, remote.saved)
 	}
 }
+
+func TestStartRewatch(t *testing.T) {
+	st := newStore(t)
+	remote := &fakeRemote{}
+	tr := &Tracker{Store: st, Remote: remote}
+	ctx := context.Background()
+
+	tr.EpisodeWatched(ctx, frieren2, 10) // finishes the show
+	tr.SetScore(ctx, frieren2.ID, 8)
+	r, err := tr.StartRewatch(ctx, frieren2.ID)
+	if err != nil || r.Entry.Status != Repeating || r.Entry.Progress != 0 || r.Entry.Score != 8 {
+		t.Fatalf("StartRewatch = %+v, %v", r, err)
+	}
+	if got := remote.saved[len(remote.saved)-1]; got != "182255:REPEATING:0" {
+		t.Fatalf("remote got %q", got)
+	}
+	// Watching the first episode again counts from the start.
+	r, err = tr.EpisodeWatched(ctx, frieren2, 1)
+	if err != nil || r.Entry.Status != Repeating || r.Entry.Progress != 1 {
+		t.Fatalf("first episode of the rewatch = %+v, %v", r, err)
+	}
+}

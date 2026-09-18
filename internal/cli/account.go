@@ -297,3 +297,45 @@ func scoreNote(r tracker.Result) string {
 	}
 	return "Rated " + score + "/10."
 }
+
+func newRewatchCmd(app *App) *cobra.Command {
+	return &cobra.Command{
+		Use:   "rewatch <anilist-id>",
+		Short: "Start watching a show again from episode 1, keeping your history",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			id, err := strconv.Atoi(args[0])
+			if err != nil {
+				return fmt.Errorf("anilist id must be a number, not %q", args[0])
+			}
+			st, err := app.Store(ctx)
+			if err != nil {
+				return err
+			}
+			round, err := st.StartRound(ctx, id)
+			if err != nil {
+				return err
+			}
+			t, err := app.Tracker(ctx)
+			if err != nil {
+				return err
+			}
+			r, err := t.StartRewatch(ctx, id)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "Rewatch started: round %d. `tsuzuki continue` plays episode 1.\n", round)
+			switch {
+			case r.Synced:
+				fmt.Fprintln(out, "AniList set to rewatching.")
+			case errors.Is(r.SyncErr, anilist.ErrUnauthorized):
+				fmt.Fprintln(out, "AniList login expired; run `tsuzuki login` to sync.")
+			case r.SyncErr != nil:
+				fmt.Fprintln(out, "AniList sync pending: "+firstLineOf(r.SyncErr.Error()))
+			}
+			return nil
+		},
+	}
+}

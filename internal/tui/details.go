@@ -33,6 +33,16 @@ type detailsKindsMsg struct {
 	kinds map[int]skip.EpisodeKind
 }
 
+type detailsRoundMsg struct {
+	round   int
+	watched map[float64]bool
+}
+
+type detailsRewatchMsg struct {
+	note string
+	err  error
+}
+
 type detailsSequelsMsg struct {
 	sequels []anilist.Media
 }
@@ -78,11 +88,14 @@ type detailsScreen struct {
 	pickingStatus bool
 	kinds         map[int]skip.EpisodeKind
 
-	sequels     []anilist.Media
-	prefs       *store.ShowPrefs // nil: the show uses the config
-	editingSubs bool
-	subsInput   textinput.Model
-	subsShow    bool
+	round         int // watch-through, from 1
+	watchedBefore map[float64]bool
+	confirming    string // "rewatch" while asking
+	sequels       []anilist.Media
+	prefs         *store.ShowPrefs // nil: the show uses the config
+	editingSubs   bool
+	subsInput     textinput.Model
+	subsShow      bool
 }
 
 func newDetails(ctx context.Context, svc Services, media anilist.Media, mode domain.Mode) *detailsScreen {
@@ -94,14 +107,39 @@ func newDetails(ctx context.Context, svc Services, media anilist.Media, mode dom
 func (d *detailsScreen) Title() string { return truncate(d.media.DisplayTitle(), 40) }
 
 func (d *detailsScreen) Init() tea.Cmd {
-	cmds := []tea.Cmd{d.loadProgress(), d.loadEntry(), d.loadKinds(), d.loadPrefs(), d.loadSequels()}
+	cmds := []tea.Cmd{d.loadProgress(), d.loadEntry(), d.loadKinds(), d.loadPrefs(), d.loadSequels(), d.loadRound()}
 	if d.needsProviderEpisodes() {
 		cmds = append(cmds, d.loadEpisodes())
 	}
 	return tea.Batch(cmds...)
 }
 
-func (d *detailsScreen) Refresh() tea.Cmd { return tea.Batch(d.loadProgress(), d.loadEntry()) }
+func (d *detailsScreen) Refresh() tea.Cmd {
+	return tea.Batch(d.loadProgress(), d.loadEntry(), d.loadRound())
+}
+
+func (d *detailsScreen) loadRound() tea.Cmd {
+	ctx, svc, id := d.ctx, d.svc, d.media.ID
+	return func() tea.Msg {
+		round, err := svc.Round(ctx, id)
+		if err != nil {
+			return nil
+		}
+		watched, err := svc.WatchedBefore(ctx, id)
+		if err != nil {
+			return nil
+		}
+		return detailsRoundMsg{round, watched}
+	}
+}
+
+func (d *detailsScreen) startRewatch() tea.Cmd {
+	ctx, svc, id := d.ctx, d.svc, d.media.ID
+	return func() tea.Msg {
+		note, err := svc.StartRewatch(ctx, id)
+		return detailsRewatchMsg{note, err}
+	}
+}
 
 func (d *detailsScreen) loadKinds() tea.Cmd {
 	ctx, svc, media := d.ctx, d.svc, d.media
@@ -230,6 +268,7 @@ var (
 	keyStatus   = key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "list status"))
 	keySubs     = key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "subtitles"))
 	keySequel   = key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "sequel"))
+	keyRewatch  = key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "rewatch"))
 )
 
 func (d *detailsScreen) Help() []key.Binding {
@@ -245,7 +284,13 @@ func (d *detailsScreen) Help() []key.Binding {
 		return []key.Binding{key.NewBinding(key.WithKeys("1"), key.WithHelp("1-6", "choose status")),
 			key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel"))}
 	}
-	keys := []key.Binding{keyPlay, keyContinue, keyMode, keyStatus, keySubs}
+	if d.confirming != "" {
+		return []key.Binding{
+			key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "yes")),
+			key.NewBinding(key.WithKeys("n", "esc"), key.WithHelp("n", "no")),
+		}
+	}
+	keys := []key.Binding{keyPlay, keyContinue, keyMode, keyStatus, keySubs, keyRewatch}
 	if len(d.sequels) > 0 {
 		keys = append(keys, keySequel)
 	}
@@ -254,7 +299,9 @@ func (d *detailsScreen) Help() []key.Binding {
 
 // CapturesInput keeps esc for cancelling the status picker and typed text for
 // the subtitle editor.
-func (d *detailsScreen) CapturesInput() bool { return d.pickingStatus || d.editingSubs }
+func (d *detailsScreen) CapturesInput() bool {
+	return d.pickingStatus || d.editingSubs || d.confirming != ""
+}
 
 func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -287,6 +334,15 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 	case detailsSequelsMsg:
 		d.sequels = msg.sequels
 
+	case detailsRoundMsg:
+		d.round, d.watchedBefore = msg.round, msg.watched
+
+	case detailsRewatchMsg:
+		if msg.err != nil {
+			return d, toast("Couldn't start a rewatch: "+firstLine(msg.err.Error()), true)
+		}
+		return d, tea.Batch(toast(msg.note, false), d.loadProgress(), d.loadEntry(), d.loadRound())
+
 	case detailsPrefsSavedMsg:
 		if msg.err != nil {
 			return d, toast("Couldn't save subtitles: "+firstLine(msg.err.Error()), true)
@@ -311,6 +367,14 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 		d.setNumbers()
 
 	case tea.KeyPressMsg:
+		if d.confirming != "" {
+			what := d.confirming
+			d.confirming = ""
+			if what == "rewatch" && (msg.String() == "y" || msg.String() == "Y") {
+				return d, d.startRewatch()
+			}
+			return d, nil
+		}
 		if d.editingSubs {
 			switch msg.String() {
 			case "esc":
@@ -343,6 +407,9 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 			return d, nil
 		case key.Matches(msg, keySubs):
 			return d, d.startEditingSubs()
+		case key.Matches(msg, keyRewatch):
+			d.confirming = "rewatch"
+			return d, nil
 		case key.Matches(msg, keySequel) && len(d.sequels) > 0:
 			return d, push(newDetails(d.ctx, d.svc, d.sequels[0], d.mode))
 		case (key.Matches(msg, keyPlay) || key.Matches(msg, keyContinue)) && d.media.NotYetAired():
@@ -433,6 +500,10 @@ func (d *detailsScreen) View(width, height int) string {
 		b.WriteString(styleMuted.Render(truncate(strings.Join(m.Genres, ", "), width)) + "\n")
 	}
 	switch {
+	case d.confirming == "rewatch":
+		b.WriteString(styleWarn.Render("Rewatch from episode 1? ") +
+			styleKey.Render("y") + " yes  " + styleKey.Render("n") + " no  " +
+			styleMuted.Render("(earlier watches stay in your history)") + "\n")
 	case d.pickingStatus:
 		var opts []string
 		for i, t := range homeTabs[1:] {
@@ -460,6 +531,9 @@ func (d *detailsScreen) View(width, height int) string {
 
 	next := d.nextUp()
 	header := fmt.Sprintf("Episodes (%s)", d.mode)
+	if d.round > 1 {
+		header += fmt.Sprintf("  ·  rewatch, round %d", d.round)
+	}
 	if d.progressSet && len(d.progress) > 0 {
 		header += styleMuted.Render(fmt.Sprintf("  ·  c continues with episode %s", episodeLabel(next)))
 	}
@@ -508,6 +582,9 @@ func (d *detailsScreen) episodeRow(i int, next float64, width int) string {
 	} else if n == next && d.progressSet && len(d.progress) > 0 {
 		mark, markStyle = "▶", styleInfo
 		detail = "next"
+	} else if d.watchedBefore[n] {
+		// Watched in an earlier round, but not yet in this rewatch.
+		mark, markStyle = "✓", styleMuted
 	} else {
 		mark = " "
 	}

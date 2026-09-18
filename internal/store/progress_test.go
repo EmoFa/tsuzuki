@@ -121,3 +121,52 @@ func TestKV(t *testing.T) {
 		t.Fatalf("v=%q updated=%v ok=%v err=%v", v, updated, ok, err)
 	}
 }
+
+func TestRewatchRounds(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	save := func(episode float64, completed bool) {
+		t.Helper()
+		if err := s.SaveProgress(ctx, Progress{MediaID: 1, Episode: episode, Position: time.Minute,
+			Duration: 24 * time.Minute, Completed: completed, Provider: "senshi", Mode: "sub"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if round, err := s.Round(ctx, 1); round != 1 || err != nil {
+		t.Fatalf("first round = %d, %v", round, err)
+	}
+	save(1, true)
+	save(2, true)
+
+	round, err := s.StartRound(ctx, 1)
+	if round != 2 || err != nil {
+		t.Fatalf("StartRound = %d, %v", round, err)
+	}
+	// The new round starts empty, and the old episodes are remembered.
+	eps, err := s.ShowProgress(ctx, 1)
+	if err != nil || len(eps) != 0 {
+		t.Fatalf("progress after rewatch = %+v, %v", eps, err)
+	}
+	if p, _ := s.EpisodeProgress(ctx, 1, 1); p != nil {
+		t.Fatalf("episode 1 still has progress: %+v", p)
+	}
+	before, err := s.WatchedBefore(ctx, 1)
+	if err != nil || !before[1] || !before[2] || len(before) != 2 {
+		t.Fatalf("watched before = %v, %v", before, err)
+	}
+
+	// Watching again records against the new round, leaving round 1 intact.
+	save(1, true)
+	if eps, _ = s.ShowProgress(ctx, 1); len(eps) != 1 || eps[0].Round != 2 {
+		t.Fatalf("round 2 progress = %+v", eps)
+	}
+	var rows int
+	if err := s.DB.QueryRowContext(ctx, "SELECT count(*) FROM watch_progress WHERE media_id = 1").Scan(&rows); err != nil || rows != 3 {
+		t.Fatalf("stored rows = %d, %v (history should be kept)", rows, err)
+	}
+	// Recent shows don't care which round an episode belongs to.
+	if recent, err := s.RecentShows(ctx, 5); err != nil || len(recent) != 1 || recent[0].Episode != 1 {
+		t.Fatalf("recent = %+v, %v", recent, err)
+	}
+}

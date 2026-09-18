@@ -46,6 +46,14 @@ type Services interface {
 	SaveShowPrefs(ctx context.Context, p store.ShowPrefs) error
 	DeleteShowPrefs(ctx context.Context, mediaID int) error
 
+	// StartRewatch begins another watch-through: progress counts from episode 1
+	// again and the list says Rewatching. Returns a note for the user.
+	StartRewatch(ctx context.Context, mediaID int) (string, error)
+	// WatchedBefore reports episodes completed in earlier watch-throughs.
+	WatchedBefore(ctx context.Context, mediaID int) (map[float64]bool, error)
+	// Round is the show's current watch-through, from 1.
+	Round(ctx context.Context, mediaID int) (int, error)
+
 	// SetScore rates a show on the list from 1 to 10, returning a note.
 	SetScore(ctx context.Context, mediaID int, score float64) (string, error)
 	// Sequels lists a show's anime sequels, from AniList.

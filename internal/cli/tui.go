@@ -231,3 +231,38 @@ func (s *tuiServices) Sequels(ctx context.Context, mediaID int) ([]anilist.Media
 	}
 	return anilist.Sequels(rels), nil
 }
+
+func (s *tuiServices) StartRewatch(ctx context.Context, mediaID int) (string, error) {
+	st, err := s.app.Store(ctx)
+	if err != nil {
+		return "", err
+	}
+	round, err := st.StartRound(ctx, mediaID)
+	if err != nil {
+		return "", err
+	}
+	t, err := s.app.Tracker(ctx)
+	if err != nil {
+		return "", err
+	}
+	r, err := t.StartRewatch(ctx, mediaID)
+	if err != nil {
+		return "", err
+	}
+	note := fmt.Sprintf("Rewatch started (round %d)", round)
+	switch {
+	case r.Synced:
+		return note + "; AniList set to rewatching.", nil
+	case r.SyncErr != nil:
+		return note + "; AniList sync pending: " + firstLineOf(r.SyncErr.Error()), nil
+	}
+	return note + ".", nil
+}
+
+func (s *tuiServices) WatchedBefore(ctx context.Context, mediaID int) (map[float64]bool, error) {
+	return s.store.WatchedBefore(ctx, mediaID)
+}
+
+func (s *tuiServices) Round(ctx context.Context, mediaID int) (int, error) {
+	return s.store.Round(ctx, mediaID)
+}

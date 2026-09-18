@@ -37,6 +37,9 @@ type fakeServices struct {
 	prefs    map[int]store.ShowPrefs
 	browsed  []anilist.BrowseQuery
 	scores   map[int]float64
+
+	rounds        int
+	watchedBefore map[float64]bool
 }
 
 func (f *fakeServices) Search(context.Context, string) ([]anilist.Media, error) {
@@ -166,6 +169,27 @@ func (f *fakeServices) DeleteShowPrefs(_ context.Context, id int) error {
 	defer f.mu.Unlock()
 	delete(f.prefs, id)
 	return nil
+}
+
+func (f *fakeServices) StartRewatch(_ context.Context, id int) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rounds++
+	f.watchedBefore = map[float64]bool{1: true, 2: true}
+	f.progress = nil
+	return fmt.Sprintf("Rewatch started (round %d).", f.rounds+1), nil
+}
+
+func (f *fakeServices) WatchedBefore(_ context.Context, id int) (map[float64]bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.watchedBefore, nil
+}
+
+func (f *fakeServices) Round(_ context.Context, id int) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.rounds + 1, nil
 }
 
 func (f *fakeServices) SetScore(_ context.Context, id int, score float64) (string, error) {
@@ -707,5 +731,59 @@ func TestDetailsForUpcomingShow(t *testing.T) {
 	}
 	if len(svc.watches) != 0 {
 		t.Fatal("watched an unaired show")
+	}
+}
+
+func TestDetailsRewatch(t *testing.T) {
+	svc := &fakeServices{}
+	d := newDetails(context.Background(), svc, frieren2, domain.Sub)
+	var apply func(tea.Cmd)
+	apply = func(cmd tea.Cmd) {
+		for _, msg := range runBatch(cmd) {
+			switch msg.(type) {
+			case nil, toastMsg:
+			default:
+				_, next := d.Update(msg)
+				apply(next)
+			}
+		}
+	}
+	d.Update(detailsProgressMsg{progress: []store.Progress{
+		{Episode: 1, Completed: true}, {Episode: 2, Completed: true},
+	}})
+	apply(d.loadRound())
+	if view := d.View(100, 30); strings.Contains(view, "rewatch") {
+		t.Fatalf("first watch shouldn't mention rewatching:\n%s", view)
+	}
+
+	// R asks first, and n doesn't start anything.
+	_, cmd := d.Update(tea.KeyPressMsg{Code: 'R', Text: "R"})
+	apply(cmd)
+	if !d.CapturesInput() || !strings.Contains(d.View(100, 30), "Rewatch from episode 1?") {
+		t.Fatalf("no confirmation:\n%s", d.View(100, 30))
+	}
+	_, cmd = d.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	apply(cmd)
+	if svc.rounds != 0 {
+		t.Fatal("n started a rewatch")
+	}
+
+	// y starts it: progress resets, earlier watches stay marked, header shows the round.
+	_, cmd = d.Update(tea.KeyPressMsg{Code: 'R', Text: "R"})
+	apply(cmd)
+	_, cmd = d.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	apply(cmd)
+	if svc.rounds != 1 {
+		t.Fatalf("rounds = %d", svc.rounds)
+	}
+	if d.round != 2 || !d.watchedBefore[1] {
+		t.Fatalf("round = %d, watchedBefore = %v", d.round, d.watchedBefore)
+	}
+	view := d.View(100, 30)
+	if !strings.Contains(view, "rewatch, round 2") {
+		t.Errorf("view missing the round:\n%s", view)
+	}
+	if next := d.nextUp(); next != 1 {
+		t.Errorf("continue would play episode %v, want 1", next)
 	}
 }

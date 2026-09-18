@@ -101,6 +101,20 @@ func (t *Tracker) EpisodeWatched(ctx context.Context, media anilist.Media, episo
 	return t.save(ctx, e)
 }
 
+// StartRewatch marks a show as being rewatched, with progress back to zero.
+// Its score is kept.
+func (t *Tracker) StartRewatch(ctx context.Context, mediaID int) (Result, error) {
+	cur, err := t.Store.ListEntry(ctx, mediaID)
+	if err != nil {
+		return Result{}, err
+	}
+	e := store.ListEntry{MediaID: mediaID, Status: Repeating}
+	if cur != nil {
+		e.Score = cur.Score
+	}
+	return t.save(ctx, e)
+}
+
 // SetStatus changes a show's status, keeping its progress.
 func (t *Tracker) SetStatus(ctx context.Context, mediaID int, status string) (Result, error) {
 	cur, err := t.Store.ListEntry(ctx, mediaID)
