@@ -6,8 +6,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -84,6 +86,7 @@ type Playback interface {
 	Close() error
 	Seek(ctx context.Context, pos time.Duration) error
 	ShowText(ctx context.Context, text string, d time.Duration) error
+	AddSubtitle(ctx context.Context, url, title, lang string) error
 	BindKey(ctx context.Context, key, message string) error
 }
 
@@ -576,6 +579,12 @@ func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, m
 		lastSave = time.Now()
 	}
 
+	// Subtitle servers are often slow on a first request but quick afterwards,
+	// and mpv stalls while it loads one, so fetch them all at once in the
+	// background and attach the extras once playback is running.
+	go warmSubtitles(ctx, req)
+	addedSubs := len(req.MoreSubtitles) == 0
+
 	skipper := skip.NewSkipper(s.Settings.SkipActions)
 	skipper.SetRanges(res.stream.Skips)
 	if err := pb.BindKey(ctx, skipKey, skipMessage); err != nil {
@@ -616,6 +625,10 @@ func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, m
 			}
 			switch e.Kind {
 			case player.EventPosition:
+				if !addedSubs {
+					addedSubs = true
+					go addSubtitles(ctx, pb, req.MoreSubtitles)
+				}
 				u := base
 				u.Kind, u.Position, u.Duration, u.Paused = StatusProgress, e.Position, e.Duration, pb.State().Paused
 				s.status(u)
@@ -661,6 +674,50 @@ const (
 	skipKey     = "TAB"
 	skipMessage = "tsuzuki-skip"
 )
+
+// warmSubtitles fetches every subtitle file once, in parallel, so the copy mpv
+// asks for comes from the site's cache instead of a cold origin.
+func warmSubtitles(ctx context.Context, req player.Request) {
+	urls := slices.Clone(req.Subtitles)
+	for _, s := range req.MoreSubtitles {
+		urls = append(urls, s.URL)
+	}
+	if len(urls) < 2 {
+		return // one file: mpv's own request is the only one worth making
+	}
+	var wg sync.WaitGroup
+	for _, u := range urls {
+		wg.Go(func() {
+			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			r, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+			if err != nil {
+				return
+			}
+			resp, err := http.DefaultClient.Do(r)
+			if err != nil {
+				slog.Debug("warming subtitle", "url", u, "err", err)
+				return
+			}
+			defer resp.Body.Close()
+			io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<20)) //nolint:errcheck // just warming a cache
+		})
+	}
+	wg.Wait()
+}
+
+// addSubtitles attaches the remaining subtitle tracks to a running playback.
+func addSubtitles(ctx context.Context, pb Playback, subs []player.Subtitle) {
+	for _, sub := range subs {
+		if ctx.Err() != nil {
+			return
+		}
+		if err := pb.AddSubtitle(ctx, sub.URL, sub.Title, sub.Lang); err != nil {
+			slog.Debug("adding subtitle track", "lang", sub.Lang, "err", err)
+			return
+		}
+	}
+}
 
 func (s *Session) lookupSkips(ctx context.Context, media anilist.Media, episode float64, length time.Duration, out chan<- []domain.SkipRange) {
 	ranges, err := s.SkipRanges(ctx, media, episode, length)
@@ -729,8 +786,17 @@ func PlayerRequest(s domain.Stream, proxy Proxy, subs domain.SubtitlePrefs) (pla
 		req.Headers = nil // the proxy adds them
 		subURL = func(u string) string { return proxy.URL(u, s.Headers) }
 	}
-	for _, sub := range domain.SortSubtitles(s.Subtitles, subs.Languages) {
-		req.Subtitles = append(req.Subtitles, subURL(sub.URL))
+	// Only the preferred track is loaded up front: some sites serve subtitles
+	// slowly, and mpv loads command-line files before it starts playing. The
+	// rest are attached once playback is under way.
+	for i, sub := range domain.SortSubtitles(s.Subtitles, subs.Languages) {
+		if i == 0 {
+			req.Subtitles = append(req.Subtitles, subURL(sub.URL))
+			continue
+		}
+		req.MoreSubtitles = append(req.MoreSubtitles, player.Subtitle{
+			URL: subURL(sub.URL), Title: sub.Label, Lang: sub.Lang,
+		})
 	}
 	return req, nil
 }

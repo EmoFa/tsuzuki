@@ -90,14 +90,22 @@ func (f *fakePlayback) ShowText(_ context.Context, text string, _ time.Duration)
 
 func (f *fakePlayback) BindKey(context.Context, string, string) error { return nil }
 
+func (f *fakePlayback) AddSubtitle(_ context.Context, url, _, lang string) error {
+	f.h.mu.Lock()
+	defer f.h.mu.Unlock()
+	f.h.addedSubs = append(f.h.addedSubs, lang+" "+url)
+	return nil
+}
+
 type harness struct {
-	sess     *Session
-	store    *store.Store
-	mu       sync.Mutex
-	requests []player.Request
-	statuses []Status
-	seeks    []time.Duration
-	osd      []string
+	sess      *Session
+	store     *store.Store
+	mu        sync.Mutex
+	requests  []player.Request
+	statuses  []Status
+	seeks     []time.Duration
+	osd       []string
+	addedSubs []string
 }
 
 func newHarness(t *testing.T, providers []provider.Provider, scripts ...script) *harness {
@@ -643,11 +651,16 @@ func TestSubtitlePreferences(t *testing.T) {
 		t.Errorf("config: %+v", r)
 	}
 
+	// Extra languages load after playback starts, not on the command line.
+	if len(r.Subtitles) != 1 || len(r.MoreSubtitles) != 2 {
+		t.Fatalf("subtitles up front = %v, later = %+v", r.Subtitles, r.MoreSubtitles)
+	}
+
 	// The show's languages win; its unset visibility inherits.
 	r = watchOnce(func(h *harness) {
 		h.store.SaveShowPrefs(context.Background(), store.ShowPrefs{MediaID: media.ID, SubLanguages: []string{"es", "en"}})
 	}, Request{})
-	if r.Subtitles[0] != "https://s/es.vtt" || r.Subtitles[1] != "https://s/en.vtt" || r.HideSubs {
+	if r.Subtitles[0] != "https://s/es.vtt" || r.MoreSubtitles[0].URL != "https://s/en.vtt" || r.HideSubs {
 		t.Errorf("show prefs: %+v", r)
 	}
 

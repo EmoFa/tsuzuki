@@ -56,6 +56,7 @@ type session struct {
 	headers       map[string]string
 	codec         *domain.PlaylistCodec
 	variantHeight int
+	audioLang     string
 	unwrapTS      bool
 }
 
@@ -90,7 +91,8 @@ func (p *Proxy) URL(upstream string, headers map[string]string) string {
 // Stream registers a provider stream, honouring its playlist codec and
 // variant selection, and returns the local URL the player should open.
 func (p *Proxy) Stream(s domain.Stream) string {
-	return p.register(s.URL, &session{headers: s.Headers, codec: s.Playlist, variantHeight: s.VariantHeight, unwrapTS: s.WrappedSegments})
+	return p.register(s.URL, &session{headers: s.Headers, codec: s.Playlist,
+		variantHeight: s.VariantHeight, audioLang: s.AudioLang, unwrapTS: s.WrappedSegments})
 }
 
 func (p *Proxy) register(upstream string, s *session) string {
@@ -214,6 +216,9 @@ func (p *Proxy) servePlaylist(w http.ResponseWriter, r *http.Request, id string,
 	if sess.variantHeight > 0 {
 		data = hls.KeepVariant(data, sess.variantHeight)
 	}
+	// One audio rendition: players otherwise open every language's playlist
+	// before they start, which is slow on sites with a dozen dubs.
+	data = hls.KeepAudioLanguage(data, sess.audioLang)
 	base, _ := url.Parse(upstream)
 	rewritten := hls.Rewrite(data, base, func(abs string) string { return p.localURL(id, abs) })
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")

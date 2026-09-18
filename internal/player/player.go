@@ -34,10 +34,19 @@ type Request struct {
 	Title     string
 	Start     time.Duration
 	Headers   map[string]string // sent with every HTTP request mpv makes
-	Subtitles []string          // subtitle file URLs, first is selected
-	SubLangs  []string          // preferred subtitle languages, for tracks inside the stream
-	HideSubs  bool              // load subtitles but start with them hidden
-	AudioLang string            // preferred audio track language
+	Subtitles []string          // subtitle files loaded before playback starts
+	// MoreSubtitles are loaded once playback has started (see Playback.AddSubtitle).
+	MoreSubtitles []Subtitle
+	SubLangs      []string // preferred subtitle languages, for tracks inside the stream
+	HideSubs      bool     // load subtitles but start with them hidden
+	AudioLang     string   // preferred audio track language
+}
+
+// Subtitle is a subtitle track to load.
+type Subtitle struct {
+	URL   string
+	Title string
+	Lang  string
 }
 
 type Player struct {

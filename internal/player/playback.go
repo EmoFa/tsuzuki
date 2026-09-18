@@ -163,6 +163,14 @@ func (pb *Playback) BindKey(ctx context.Context, key, message string) error {
 	return err
 }
 
+// AddSubtitle loads another subtitle file while playing, without selecting it
+// over the one already chosen. mpv fetches it in the background, so slow
+// subtitle servers don't hold up playback.
+func (pb *Playback) AddSubtitle(ctx context.Context, url, title, lang string) error {
+	_, err := pb.Command(ctx, "sub-add", url, "auto", title, lang)
+	return err
+}
+
 // Quit asks mpv to exit.
 func (pb *Playback) Quit(ctx context.Context) error {
 	_, err := pb.Command(ctx, "quit")

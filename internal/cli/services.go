@@ -21,6 +21,7 @@ import (
 	"github.com/EmoFa/tsuzuki/internal/provider"
 	"github.com/EmoFa/tsuzuki/internal/provider/anikoto"
 	"github.com/EmoFa/tsuzuki/internal/provider/animepahe"
+	"github.com/EmoFa/tsuzuki/internal/provider/kickassanime"
 	"github.com/EmoFa/tsuzuki/internal/provider/senshi"
 	"github.com/EmoFa/tsuzuki/internal/session"
 	"github.com/EmoFa/tsuzuki/internal/skip"
@@ -72,6 +73,7 @@ func (a *App) newRegistry(client *httpx.Client) *provider.Registry {
 		anikoto.New(client, a.Sniffer(), ""),
 		senshi.New(client, "", ""),
 		animepahe.New(client, ""),
+		kickassanime.New(client, ""),
 	)
 }
 

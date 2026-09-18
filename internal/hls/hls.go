@@ -141,3 +141,61 @@ func VariantHeights(body []byte) []int {
 	}
 	return heights
 }
+
+// audioMedia matches an audio rendition's language in an EXT-X-MEDIA line.
+var audioMedia = regexp.MustCompile(`(?i)^#EXT-X-MEDIA:.*TYPE=AUDIO`)
+var mediaLanguage = regexp.MustCompile(`(?i)LANGUAGE="([^"]*)"`)
+
+// KeepAudioLanguage drops the audio renditions of a master playlist that aren't
+// in lang, so a player doesn't open every language's playlist before starting.
+// A playlist without a matching rendition is returned unchanged.
+func KeepAudioLanguage(body []byte, lang string) []byte {
+	if lang == "" {
+		return body
+	}
+	lines := bytes.SplitAfter(body, []byte("\n"))
+	out := make([][]byte, 0, len(lines))
+	kept, dropped := 0, 0
+	for _, line := range lines {
+		trimmed := bytes.TrimSpace(line)
+		if !audioMedia.Match(trimmed) {
+			out = append(out, line)
+			continue
+		}
+		m := mediaLanguage.FindSubmatch(trimmed)
+		if m != nil && sameLanguage(string(m[1]), lang) {
+			out = append(out, line)
+			kept++
+		} else {
+			dropped++
+		}
+	}
+	if kept == 0 || dropped == 0 {
+		return body
+	}
+	return bytes.Join(out, nil)
+}
+
+// sameLanguage compares ISO 639 codes, treating the two- and three-letter forms
+// of a language as equal ("ja" and "jpn").
+func sameLanguage(a, b string) bool {
+	a, b = strings.ToLower(a), strings.ToLower(b)
+	if a == b {
+		return true
+	}
+	short, long := a, b
+	if len(short) > len(long) {
+		short, long = long, short
+	}
+	if len(short) != 2 || len(long) != 3 {
+		return false
+	}
+	return iso639[short] == long
+}
+
+// iso639 maps the two-letter codes providers use to their three-letter form.
+var iso639 = map[string]string{
+	"ar": "ara", "de": "ger", "en": "eng", "es": "spa", "fr": "fra", "hi": "hin",
+	"it": "ita", "ja": "jpn", "ko": "kor", "pt": "por", "ru": "rus", "ta": "tam",
+	"th": "tha", "tr": "tur", "vi": "vie", "zh": "chi",
+}

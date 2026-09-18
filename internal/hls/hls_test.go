@@ -103,3 +103,32 @@ func TestVariants(t *testing.T) {
 		t.Fatalf("variants = %+v", vs)
 	}
 }
+
+func TestKeepAudioLanguage(t *testing.T) {
+	master := []byte(`#EXTM3U
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="stereo",NAME="English",LANGUAGE="eng",URI="a-eng/playlist.m3u8"
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="stereo",NAME="Japanese",DEFAULT=YES,LANGUAGE="jpn",URI="a-jpn/playlist.m3u8"
+#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",LANGUAGE="eng",URI="s-eng/playlist.m3u8"
+#EXT-X-STREAM-INF:BANDWIDTH=1,RESOLUTION=1920x1080,AUDIO="stereo"
+v1080/playlist.m3u8
+`)
+	got := string(KeepAudioLanguage(master, "jpn"))
+	if strings.Count(got, "TYPE=AUDIO") != 1 || !strings.Contains(got, `LANGUAGE="jpn"`) {
+		t.Errorf("kept the wrong audio renditions:\n%s", got)
+	}
+	for _, want := range []string{"TYPE=SUBTITLES", "v1080/playlist.m3u8", "RESOLUTION=1920x1080"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("dropped %q:\n%s", want, got)
+		}
+	}
+	// Two-letter codes match the three-letter form providers' playlists use.
+	if got := string(KeepAudioLanguage(master, "ja")); strings.Count(got, "TYPE=AUDIO") != 1 {
+		t.Errorf("ja didn't match jpn:\n%s", got)
+	}
+	// Nothing matching, or nothing to drop, leaves the playlist alone.
+	for _, lang := range []string{"", "kor"} {
+		if got := string(KeepAudioLanguage(master, lang)); got != string(master) {
+			t.Errorf("lang %q changed the playlist:\n%s", lang, got)
+		}
+	}
+}
