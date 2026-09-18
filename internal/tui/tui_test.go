@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/exp/teatest/v2"
 
 	"github.com/EmoFa/tsuzuki/internal/anilist"
@@ -270,6 +272,12 @@ func (f *fakeServices) Settings() Settings {
 	return Settings{Config: config.Default(), ConfigPath: "/cfg/config.toml", DataDir: "/data", CacheDir: "/cache"}
 }
 
+// ansiRE matches the colour codes lipgloss writes, so assertions can look at
+// the text a user sees.
+var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func plain(s string) string { return ansiRE.ReplaceAllString(s, "") }
+
 func press(s string) tea.KeyPressMsg {
 	switch s {
 	case "enter":
@@ -458,6 +466,57 @@ func TestDetailsOpensPrequelAndSequel(t *testing.T) {
 		}
 		if got := msg.s.Title(); got != tc.want {
 			t.Errorf("%q opened %q, want %q", tc.key, got, tc.want)
+		}
+	}
+}
+
+// A narrow window must still show every key of the screen it's on, and when
+// even wrapping can't fit them, ? has to stay reachable.
+func TestFooterKeysSurviveASmallWindow(t *testing.T) {
+	svc := &fakeServices{}
+	m := New(context.Background(), svc)
+	m.Update(pushMsg{newDetails(context.Background(), svc, frieren2, domain.Sub)})
+
+	m.Update(tea.WindowSizeMsg{Width: 70, Height: 20})
+	view := plain(m.render())
+	for _, want := range []string{"jump to episode", "mark up to here", "list status", "subtitles", "rewatch", "? help"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("70x20 footer missing %q:\n%s", want, view)
+		}
+	}
+	if h := lipgloss.Height(view); h != 20 {
+		t.Errorf("rendered %d lines, want 20", h)
+	}
+
+	// Too narrow for everything: the bar leads with the keys that are always
+	// there and says the list goes on.
+	m.Update(tea.WindowSizeMsg{Width: 34, Height: 8})
+	view = plain(m.render())
+	if !strings.Contains(view, "? help") || !strings.Contains(view, "…") {
+		t.Errorf("34x8 footer dropped the way out:\n%s", view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if w := lipgloss.Width(line); w > 34 {
+			t.Errorf("line %d wide in a 34-wide window: %q", w, line)
+		}
+	}
+}
+
+// The ? overlay is the full list, so it has to fit the window it opens in.
+func TestHelpOverlayFitsTheWindow(t *testing.T) {
+	svc := &fakeServices{}
+	m := New(context.Background(), svc)
+	m.Update(pushMsg{newDetails(context.Background(), svc, frieren2, domain.Sub)})
+	m.Update(tea.WindowSizeMsg{Width: 76, Height: 18})
+	m.Update(press("?"))
+
+	view := plain(m.render())
+	if h := lipgloss.Height(view); h > 18 {
+		t.Errorf("overlay rendered %d lines in an 18-line window:\n%s", h, view)
+	}
+	for _, want := range []string{"play episode", "jump to episode", "mark up to here", "rewatch", "quit tsuzuki", "press any key to close"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("overlay missing %q:\n%s", want, view)
 		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -352,14 +353,19 @@ func (m *Model) render() string {
 	}
 	header := m.header()
 	footer := m.footer()
-	bodyHeight := max(m.height-lipgloss.Height(header)-lipgloss.Height(footer), 1)
+	bodyHeight := max(m.height-lipgloss.Height(header), 1)
+	if footer != "" {
+		bodyHeight = max(bodyHeight-lipgloss.Height(footer), 1)
+	}
 
-	var body string
+	content := m.top().View(m.width, bodyHeight)
 	if m.help {
-		body = lipgloss.Place(m.width, bodyHeight, lipgloss.Center, lipgloss.Center, m.helpView())
-	} else {
-		body = lipgloss.NewStyle().Width(m.width).Height(bodyHeight).MaxHeight(bodyHeight).
-			Render(m.top().View(m.width, bodyHeight))
+		content = lipgloss.Place(m.width, bodyHeight, lipgloss.Center, lipgloss.Center,
+			m.helpView(m.width, bodyHeight))
+	}
+	body := lipgloss.NewStyle().Width(m.width).Height(bodyHeight).MaxHeight(bodyHeight).Render(content)
+	if footer == "" {
+		return lipgloss.JoinVertical(lipgloss.Left, header, body)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
 }
@@ -381,17 +387,61 @@ func (m *Model) footer() string {
 		}
 		lines = append(lines, style.Render(truncate(m.toast, m.width)))
 	}
-	var parts []string
-	seen := map[string]bool{}
-	for _, b := range append(m.top().Help(), m.globalKeys()...) {
-		if seen[b.Help().Key] {
-			continue
-		}
-		seen[b.Help().Key] = true
-		parts = append(parts, styleKey.Render(b.Help().Key)+" "+styleMuted.Render(b.Help().Desc))
+	if m.help {
+		// The overlay lists every key already, and a small window needs the
+		// lines more than it needs them twice.
+		return strings.Join(lines, "\n")
 	}
-	lines = append(lines, truncate(strings.Join(parts, styleMuted.Render(" · ")), m.width))
-	return strings.Join(lines, "\n")
+	seen := map[string]bool{}
+	hint := func(bindings []key.Binding) []string {
+		var out []string
+		for _, b := range bindings {
+			if seen[b.Help().Key] {
+				continue
+			}
+			seen[b.Help().Key] = true
+			out = append(out, styleKey.Render(b.Help().Key)+" "+styleMuted.Render(b.Help().Desc))
+		}
+		return out
+	}
+	hints, global := hint(m.top().Help()), hint(m.globalKeys())
+	// A narrow window wraps the hints over a few lines rather than cutting
+	// them off, but never at the cost of the screen below.
+	maxLines := min(3, max(1, m.height-len(lines)-6))
+	bar, all := wrapHints(append(hints, global...), m.width, maxLines)
+	if !all {
+		// Still too many: lead with the keys that are always there, so ?
+		// reaches the ones the bar can't show.
+		bar, _ = wrapHints(append(global, hints...), m.width, maxLines)
+	}
+	return strings.Join(append(lines, bar...), "\n")
+}
+
+// wrapHints packs key hints into at most maxLines lines no wider than width,
+// reporting whether they all fit. The last line ends in an ellipsis when they
+// don't.
+func wrapHints(hints []string, width, maxLines int) ([]string, bool) {
+	sep, more := styleMuted.Render(" · "), styleMuted.Render(" …")
+	var lines []string
+	cur := ""
+	for _, h := range hints {
+		// The last line the bar may use keeps room to say there are more.
+		limit := width
+		if len(lines)+1 == maxLines {
+			limit -= lipgloss.Width(more)
+		}
+		switch {
+		case cur == "":
+			cur = h
+		case lipgloss.Width(cur)+lipgloss.Width(sep)+lipgloss.Width(h) <= limit:
+			cur += sep + h
+		case len(lines)+1 < maxLines:
+			lines, cur = append(lines, cur), h
+		default:
+			return append(lines, truncate(cur, limit)+more), false
+		}
+	}
+	return append(lines, truncate(cur, width)), true
 }
 
 func (m *Model) globalKeys() []key.Binding {
@@ -401,15 +451,74 @@ func (m *Model) globalKeys() []key.Binding {
 	return []key.Binding{keyHelp, keyBack}
 }
 
-func (m *Model) helpView() string {
-	var b strings.Builder
-	b.WriteString(styleTitle.Render(m.top().Title()+" keys") + "\n\n")
-	for _, k := range append(m.top().Help(), keyHelp, keyBack, keyQuit,
-		key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit tsuzuki"))) {
-		b.WriteString(styleKey.Render(padRight(k.Help().Key, 10)) + " " + k.Help().Desc + "\n")
+func (m *Model) helpView(width, height int) string {
+	keys := append(m.top().Help(), keyHelp, keyBack, keyQuit,
+		key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit tsuzuki")))
+	keyWidth := 0
+	for _, k := range keys {
+		keyWidth = max(keyWidth, lipgloss.Width(k.Help().Key))
 	}
-	b.WriteString("\n" + styleMuted.Render("press any key to close"))
-	return styleHelpBox.Render(b.String())
+	rows := make([]string, 0, len(keys))
+	for _, k := range keys {
+		rows = append(rows, styleKey.Render(padRight(k.Help().Key, keyWidth))+"  "+k.Help().Desc)
+	}
+	title := styleTitle.Render(m.top().Title() + " keys")
+	closing := styleMuted.Render("press any key to close")
+	// The box costs two lines and two columns of border, its padding another
+	// two and four, and the title, blank line and closing hint four more.
+	if body, fits := columns(rows, width-6, height-8); fits {
+		return styleHelpBox.Render(lipgloss.JoinVertical(lipgloss.Left,
+			title, "", strings.Join(body, "\n"), "", closing))
+	}
+	// Too small for the box: use the whole area instead of spilling over it.
+	body, _ := columns(rows, width, height-2)
+	return lipgloss.JoinVertical(lipgloss.Left, title, strings.Join(body, "\n"), closing)
+}
+
+// columns lays rows out in as many side-by-side columns as it takes to fit
+// height lines, reporting whether they all fit. Rows that don't are dropped,
+// with the last one an ellipsis.
+func columns(rows []string, width, height int) ([]string, bool) {
+	if len(rows) == 0 || width <= 0 || height <= 0 {
+		return nil, len(rows) == 0
+	}
+	colWidth := 0
+	for _, r := range rows {
+		colWidth = max(colWidth, lipgloss.Width(r))
+	}
+	const gap = 3
+	n := 1
+	if len(rows) > height {
+		n = (len(rows) + height - 1) / height
+	}
+	n = max(min(n, (width+gap)/(colWidth+gap)), 1)
+	per := (len(rows) + n - 1) / n
+	fits := per <= height
+	if !fits {
+		// n columns of height rows is all there is room for, and the last of
+		// them says that the list goes on.
+		per = height
+		rows = append(slices.Clone(rows[:n*per-1]), styleMuted.Render("…"))
+	}
+	lines := make([]string, 0, per)
+	for r := range per {
+		var line strings.Builder
+		for c := range n {
+			i := c*per + r
+			if i >= len(rows) {
+				break
+			}
+			if c > 0 {
+				line.WriteString(strings.Repeat(" ", gap))
+			}
+			line.WriteString(rows[i])
+			if c < n-1 {
+				line.WriteString(strings.Repeat(" ", max(colWidth-lipgloss.Width(rows[i]), 0)))
+			}
+		}
+		lines = append(lines, line.String())
+	}
+	return lines, fits
 }
 
 func padRight(s string, n int) string {
