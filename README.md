@@ -87,9 +87,10 @@ list, and the list tabs in the UI mirror it. Changes made while AniList is
 unreachable are sent later. Set `tracking.backend = "local"` to keep everything
 on your machine.
 
-What your list already says is filled in too: a show marked Completed shows every
-episode as watched, and one you're 12 episodes into shows the first 12, so a show
-you started elsewhere continues from the right place here.
+What your list already says counts too: a show marked Completed shows every episode
+as watched, and one you're 12 episodes into shows the first 12, so a show you
+started elsewhere continues from the right place here. Those come from your list,
+so only what you actually play here turns up under **Continue watching**.
 
 ### Keys
 

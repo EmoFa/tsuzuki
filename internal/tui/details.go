@@ -20,6 +20,7 @@ import (
 	"github.com/EmoFa/tsuzuki/internal/session"
 	"github.com/EmoFa/tsuzuki/internal/skip"
 	"github.com/EmoFa/tsuzuki/internal/store"
+	"github.com/EmoFa/tsuzuki/internal/tracker"
 )
 
 type detailsProgressMsg struct {
@@ -39,8 +40,6 @@ type detailsRoundMsg struct {
 	round   int
 	watched map[float64]bool
 }
-
-type detailsFilledMsg struct{ added int }
 
 type detailsWatchedMsg struct {
 	note string
@@ -118,7 +117,7 @@ func newDetails(ctx context.Context, svc Services, media anilist.Media, mode dom
 func (d *detailsScreen) Title() string { return truncate(d.media.DisplayTitle(), 40) }
 
 func (d *detailsScreen) Init() tea.Cmd {
-	cmds := []tea.Cmd{d.fillFromList(), d.loadEntry(), d.loadKinds(), d.loadPrefs(), d.loadSequels(), d.loadRound()}
+	cmds := []tea.Cmd{d.loadProgress(), d.loadEntry(), d.loadKinds(), d.loadPrefs(), d.loadSequels(), d.loadRound()}
 	if d.needsProviderEpisodes() {
 		cmds = append(cmds, d.loadEpisodes())
 	}
@@ -127,19 +126,6 @@ func (d *detailsScreen) Init() tea.Cmd {
 
 func (d *detailsScreen) Refresh() tea.Cmd {
 	return tea.Batch(d.loadProgress(), d.loadEntry(), d.loadRound())
-}
-
-// fillFromList marks what the user's list says they've watched, then loads
-// progress, so a show followed on AniList shows its episodes as watched here.
-func (d *detailsScreen) fillFromList() tea.Cmd {
-	ctx, svc, media := d.ctx, d.svc, d.media
-	return func() tea.Msg {
-		added, err := svc.ApplyListProgress(ctx, media)
-		if err != nil {
-			return detailsFilledMsg{}
-		}
-		return detailsFilledMsg{added}
-	}
 }
 
 func (d *detailsScreen) loadRound() tea.Cmd {
@@ -370,9 +356,6 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 	case detailsRoundMsg:
 		d.round, d.watchedBefore = msg.round, msg.watched
 
-	case detailsFilledMsg:
-		return d, d.loadProgress()
-
 	case detailsWatchedMsg:
 		if msg.err != nil {
 			return d, toast("Couldn't change the marks: "+firstLine(msg.err.Error()), true)
@@ -543,7 +526,22 @@ func (d *detailsScreen) setNumbers() {
 	d.list.setLen(len(nums))
 }
 
-// nextUp is the episode "continue" plays: after the most recently watched one.
+// listWatchedThrough is how far the user's list says they've watched: its
+// progress, or the whole show when the list calls it completed. Episodes
+// watched elsewhere show as watched here without inventing any history.
+func (d *detailsScreen) listWatchedThrough() float64 {
+	if d.entry == nil {
+		return 0
+	}
+	through := float64(d.entry.Progress)
+	if d.entry.Status == tracker.Completed && float64(d.media.Episodes) > through {
+		through = float64(d.media.Episodes)
+	}
+	return through
+}
+
+// nextUp is the episode "continue" plays: after the most recently watched one,
+// or after what the user's list has reached, whichever is further.
 func (d *detailsScreen) nextUp() float64 {
 	var latest *store.Progress
 	for _, p := range d.progress {
@@ -551,13 +549,17 @@ func (d *detailsScreen) nextUp() float64 {
 			latest = &p
 		}
 	}
-	if latest == nil {
-		if len(d.numbers) > 0 {
-			return d.numbers[0]
-		}
-		return 1
+	next := 1.0
+	switch {
+	case latest != nil:
+		next = nextEpisode(*latest)
+	case len(d.numbers) > 0:
+		next = d.numbers[0]
 	}
-	return nextEpisode(*latest)
+	if fromList := d.listWatchedThrough() + 1; fromList > next {
+		next = fromList
+	}
+	return next
 }
 
 func (d *detailsScreen) View(width, height int) string {
@@ -658,6 +660,9 @@ func (d *detailsScreen) episodeRow(i int, next float64, width int) string {
 	} else if n == next && d.progressSet && len(d.progress) > 0 {
 		mark, markStyle = "▶", styleInfo
 		detail = "next"
+	} else if n <= d.listWatchedThrough() {
+		// Watched according to the user's list, though not played here.
+		mark, markStyle = "✓", styleGood
 	} else if d.watchedBefore[n] {
 		// Watched in an earlier round, but not yet in this rewatch.
 		mark, markStyle = "✓", styleMuted

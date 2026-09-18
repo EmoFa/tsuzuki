@@ -46,9 +46,6 @@ type Services interface {
 	SaveShowPrefs(ctx context.Context, p store.ShowPrefs) error
 	DeleteShowPrefs(ctx context.Context, mediaID int) error
 
-	// ApplyListProgress marks what the user's list says they've watched,
-	// reporting how many episodes it added.
-	ApplyListProgress(ctx context.Context, media anilist.Media) (int, error)
 	// SetWatched marks episodes from..to (inclusive) watched or not, returning a
 	// note. Marking watched also moves your list on; unmarking is local only.
 	SetWatched(ctx context.Context, media anilist.Media, from, to float64, watched bool) (string, error)

@@ -39,7 +39,6 @@ type Store interface {
 	SyncFailed(ctx context.Context, mediaID int, cause error) error
 	SyncDone(ctx context.Context, p store.PendingSync) error
 	PendingSyncs(ctx context.Context) ([]store.PendingSync, error)
-	FillWatched(ctx context.Context, mediaID int, through int, at time.Time) (int, error)
 }
 
 // Remote is a list service such as AniList.
@@ -100,22 +99,6 @@ func (t *Tracker) EpisodeWatched(ctx context.Context, media anilist.Media, episo
 		e.Status = Completed
 	}
 	return t.save(ctx, e)
-}
-
-// ApplyListProgress marks the episodes the user's list says they've watched, so
-// a show followed on AniList shows the same progress here. episodes is how many
-// the show has (0 when unknown). It only ever adds marks.
-func (t *Tracker) ApplyListProgress(ctx context.Context, mediaID, episodes int) (int, error) {
-	e, err := t.Store.ListEntry(ctx, mediaID)
-	if err != nil || e == nil {
-		return 0, err
-	}
-	through := e.Progress
-	// "Completed" means the whole show, whatever progress the entry carries.
-	if e.Status == Completed && episodes > through {
-		through = episodes
-	}
-	return t.Store.FillWatched(ctx, mediaID, through, e.UpdatedAt)
 }
 
 // StartRewatch marks a show as being rewatched, with progress back to zero.
@@ -260,9 +243,6 @@ func (t *Tracker) Pull(ctx context.Context) (int, error) {
 		e := store.ListEntry{MediaID: it.MediaID, Status: it.Status, Progress: it.Progress, Score: it.Score, UpdatedAt: it.UpdatedAt}
 		if err := t.Store.SaveListEntry(ctx, e); err != nil {
 			return n, err
-		}
-		if _, err := t.ApplyListProgress(ctx, it.MediaID, it.Media.Episodes); err != nil {
-			slog.Warn("marking episodes from the list", "media", it.MediaID, "err", err)
 		}
 		n++
 	}
