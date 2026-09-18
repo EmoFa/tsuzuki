@@ -16,6 +16,7 @@ import (
 
 	"github.com/EmoFa/tsuzuki/internal/anilist"
 	"github.com/EmoFa/tsuzuki/internal/browser"
+	"github.com/EmoFa/tsuzuki/internal/config"
 	"github.com/EmoFa/tsuzuki/internal/discord"
 	"github.com/EmoFa/tsuzuki/internal/domain"
 	"github.com/EmoFa/tsuzuki/internal/httpx"
@@ -122,6 +123,10 @@ func localChecks(ctx context.Context, app *App) []check {
 		checks = append(checks, check{"browser", statusOK, withVersion(ctx, bin)})
 	}
 
+	for _, name := range app.Config.DroppedProviders() {
+		checks = append(checks, check{"provider " + name, statusWarn,
+			fmt.Sprintf("no longer supported: %s. Remove it from providers.order.", config.RemovedProviders[name])})
+	}
 	checks = append(checks, discordCheck(ctx, app), accountCheck(app))
 	if st != nil {
 		if pending, err := st.PendingSyncs(ctx); err == nil && len(pending) > 0 {
@@ -282,7 +287,7 @@ func providerChecks(ctx context.Context, app *App, query string, streams bool, t
 	reg := app.newRegistry(client)
 	checker := &streamcheck.Checker{Client: client}
 
-	names := app.Config.Providers.Order
+	names := app.Config.ActiveProviders()
 	results := make([]check, len(names))
 	var wg sync.WaitGroup
 	for i, name := range names {

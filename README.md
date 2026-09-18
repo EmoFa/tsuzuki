@@ -9,7 +9,7 @@ Watch anime from your terminal. Find a show, pick an episode, and tsuzuki plays 
 in [mpv](https://mpv.io), remembering where you stopped and keeping your
 [AniList](https://anilist.co) up to date.
 
-- **Several providers with fallback.** Anikoto, Senshi, AllAnime and Animepahe are
+- **Several providers with fallback.** Anikoto, Senshi and Animepahe are
   tried in the order you choose, up to 1080p. A stream that doesn't work, or
   stops partway, moves on to the next provider at the same position.
 - **Gets past Cloudflare and DDoS-Guard** with a built-in Chrome/Chromium session.

@@ -82,7 +82,7 @@ func (s *tuiServices) ProviderEpisodes(ctx context.Context, media anilist.Media,
 		return nil, err
 	}
 	var errs []error
-	for _, name := range s.app.Config.Providers.Order {
+	for _, name := range s.app.Config.ActiveProviders() {
 		p, err := reg.Get(name)
 		if err != nil {
 			continue

@@ -18,8 +18,8 @@ check_updates = true
 
 [providers]
 # Providers are tried in this order until one returns a working stream.
-# Available: "anikoto", "senshi", "allanime", "animepahe".
-order = ["anikoto", "senshi", "allanime", "animepahe"]
+# Available: "anikoto", "senshi", "animepahe".
+order = ["anikoto", "senshi", "animepahe"]
 # How long to wait when checking that a stream URL actually responds.
 health_check_timeout = "5s"
 

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -33,7 +34,7 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 
 func TestLoadPartialOverridesDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
-	body := "[general]\nmode = \"dub\"\n[providers]\norder = [\"allanime\"]\nhealth_check_timeout = \"2s\"\n"
+	body := "[general]\nmode = \"dub\"\n[providers]\norder = [\"senshi\"]\nhealth_check_timeout = \"2s\"\n"
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +60,7 @@ func TestDecodeErrors(t *testing.T) {
 		{"bad duration", "[providers]\nhealth_check_timeout = \"soon\"\n", []string{"line 2"}},
 		{
 			"invalid values reported together",
-			"[general]\nmode = \"raw\"\nwatched_threshold = 1.5\n[providers]\norder = [\"allanime\", \"allanime\", \"nyaa\"]\n[discord]\nclient_id = \"tsuzuki\"\n[subtitles]\nlanguages = [\"English\"]\n",
+			"[general]\nmode = \"raw\"\nwatched_threshold = 1.5\n[providers]\norder = [\"senshi\", \"senshi\", \"nyaa\"]\n[discord]\nclient_id = \"tsuzuki\"\n[subtitles]\nlanguages = [\"English\"]\n",
 			[]string{"general.mode", "watched_threshold", "listed twice", `"nyaa"`, "discord.client_id", "subtitles.languages"},
 		},
 	}
@@ -120,5 +121,24 @@ func TestWindowsPathHint(t *testing.T) {
 	cfg = Default()
 	if err := Decode([]byte("[player]\nmpv_path = 'C:\\Program Files\\mpv\\mpv.exe'\n"), &cfg); err != nil || cfg.Player.MpvPath != `C:\Program Files\mpv\mpv.exe` {
 		t.Fatalf("single quotes: %q %v", cfg.Player.MpvPath, err)
+	}
+}
+
+func TestRemovedProvidersStayValidButAreSkipped(t *testing.T) {
+	cfg := Default()
+	body := "[providers]\norder = [\"allanime\", \"senshi\"]\n"
+	if err := Decode([]byte(body), &cfg); err != nil {
+		t.Fatalf("a config naming a removed provider should still load: %v", err)
+	}
+	if got := cfg.ActiveProviders(); !slices.Equal(got, []string{"senshi"}) {
+		t.Errorf("ActiveProviders = %v", got)
+	}
+	if got := cfg.DroppedProviders(); !slices.Equal(got, []string{"allanime"}) {
+		t.Errorf("DroppedProviders = %v", got)
+	}
+	// Unknown providers are still errors.
+	cfg = Default()
+	if err := Decode([]byte("[providers]\norder = [\"nyaa\"]\n"), &cfg); err == nil {
+		t.Error("unknown provider accepted")
 	}
 }

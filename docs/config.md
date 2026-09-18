@@ -42,7 +42,7 @@ Each directory can also be moved with `TSUZUKI_CONFIG_DIR`, `TSUZUKI_DATA_DIR` o
 
 | Key | Default | Description |
 |---|---|---|
-| `providers.order` | `["anikoto", "senshi", "allanime", "animepahe"]` | Providers to try, in order. Each is tried until one has the episode and its stream passes a health check; a stream that fails while playing moves on to the next provider, resuming at the same position. Remove a provider to never use it. Available: `anikoto`, `senshi`, `allanime`, `animepahe`. |
+| `providers.order` | `["anikoto", "senshi", "animepahe"]` | Providers to try, in order. Each is tried until one has the episode and its stream passes a health check; a stream that fails while playing moves on to the next provider, resuming at the same position. Remove a provider to never use it. Available: `anikoto`, `senshi`, `animepahe`. A provider tsuzuki has dropped (currently `allanime`) stays valid here so old configs keep working: it's skipped, and `doctor` says so. |
 | `providers.health_check_timeout` | `"5s"` | How long to wait when checking that a stream actually serves video before handing it to mpv. A duration such as `"5s"` or `"1m"`. |
 
 The provider that last worked for a show is tried first next time.

@@ -208,7 +208,7 @@ func TestFormatMatch(t *testing.T) {
 }
 
 func TestConflictingIDsAreRejectedEvenWithExactTitle(t *testing.T) {
-	p := &fakeProvider{name: "allanime", results: map[string][]domain.Show{
+	p := &fakeProvider{name: "senshi", results: map[string][]domain.Show{
 		"Frieren: Beyond Journey's End Season 2": {
 			{ID: "x", Title: "Frieren: Beyond Journey’s End Season 2", AniListID: 1},
 		},

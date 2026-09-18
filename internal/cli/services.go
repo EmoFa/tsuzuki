@@ -19,7 +19,6 @@ import (
 	"github.com/EmoFa/tsuzuki/internal/mapping"
 	"github.com/EmoFa/tsuzuki/internal/player"
 	"github.com/EmoFa/tsuzuki/internal/provider"
-	"github.com/EmoFa/tsuzuki/internal/provider/allanime"
 	"github.com/EmoFa/tsuzuki/internal/provider/anikoto"
 	"github.com/EmoFa/tsuzuki/internal/provider/animepahe"
 	"github.com/EmoFa/tsuzuki/internal/provider/senshi"
@@ -73,7 +72,6 @@ func (a *App) newRegistry(client *httpx.Client) *provider.Registry {
 		anikoto.New(client, a.Sniffer(), ""),
 		senshi.New(client, "", ""),
 		animepahe.New(client, ""),
-		allanime.New(client, ""),
 	)
 }
 
@@ -210,7 +208,7 @@ func (a *App) Session(ctx context.Context, onStatus func(session.Status)) (*sess
 	mpv := player.New(player.Options{MpvPath: cfg.Player.MpvPath, ExtraArgs: cfg.Player.ExtraArgs})
 	return session.New(session.Deps{
 		Settings: session.Settings{
-			ProviderOrder:    cfg.Providers.Order,
+			ProviderOrder:    cfg.ActiveProviders(),
 			Quality:          cfg.General.Quality,
 			AutoplayNext:     cfg.General.AutoplayNext,
 			WatchedThreshold: cfg.General.WatchedThreshold,

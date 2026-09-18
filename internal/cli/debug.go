@@ -323,7 +323,7 @@ func newMappingCmds(app *App) []*cobra.Command {
 				}
 				names := args[1:]
 				if len(names) == 0 {
-					names = app.Config.Providers.Order
+					names = app.Config.ActiveProviders()
 				}
 				m, err := modeFlag(app, "", "")
 				if err != nil {

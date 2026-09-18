@@ -104,7 +104,7 @@ func (d Duration) MarshalText() ([]byte, error) { return []byte(d.String()), nil
 var (
 	Modes         = []string{"sub", "dub"}
 	Qualities     = []string{"best", "1080", "720", "480", "360", "worst"}
-	ProviderNames = []string{"anikoto", "senshi", "allanime", "animepahe"}
+	ProviderNames = []string{"anikoto", "senshi", "animepahe"}
 	Backends      = []string{"local", "anilist"}
 	SkipActions   = []string{"auto", "prompt", "off"}
 	Themes        = []string{"default", "mono"}
@@ -121,7 +121,7 @@ func Default() Config {
 			CheckUpdates:        true,
 		},
 		Providers: Providers{
-			Order:              []string{"anikoto", "senshi", "allanime", "animepahe"},
+			Order:              []string{"anikoto", "senshi", "animepahe"},
 			HealthCheckTimeout: Duration{5 * time.Second},
 		},
 		Player:   Player{ExtraArgs: []string{}},
@@ -202,7 +202,9 @@ func (c *Config) Validate() error {
 	}
 	seen := map[string]bool{}
 	for _, p := range c.Providers.Order {
-		oneOf("providers.order", p, ProviderNames)
+		if _, dropped := RemovedProviders[p]; !dropped {
+			oneOf("providers.order", p, ProviderNames)
+		}
 		if seen[p] {
 			errs = append(errs, fmt.Errorf("providers.order: %q listed twice", p))
 		}
@@ -241,4 +243,33 @@ func IsLanguageCode(s string) bool {
 		}
 	}
 	return true
+}
+
+// RemovedProviders are providers tsuzuki no longer implements, and why. They
+// stay valid in providers.order so an old config still loads; they're skipped
+// with a warning instead.
+var RemovedProviders = map[string]string{
+	"allanime": "its streams have been blocked upstream since September 2026 (AA_CRYPTO_MISSING)",
+}
+
+// ActiveProviders is providers.order without providers that were removed.
+func (c Config) ActiveProviders() []string {
+	out := make([]string, 0, len(c.Providers.Order))
+	for _, p := range c.Providers.Order {
+		if _, dropped := RemovedProviders[p]; !dropped {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// DroppedProviders lists the removed providers a config still names.
+func (c Config) DroppedProviders() []string {
+	var out []string
+	for _, p := range c.Providers.Order {
+		if _, dropped := RemovedProviders[p]; dropped {
+			out = append(out, p)
+		}
+	}
+	return out
 }
