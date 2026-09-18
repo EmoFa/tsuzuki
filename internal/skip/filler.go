@@ -62,7 +62,18 @@ func (f *FillerList) Kinds(ctx context.Context, media anilist.Media) (map[int]Ep
 	if slug == "" {
 		return nil, nil
 	}
-	return f.show(ctx, slug)
+	kinds, err := f.show(ctx, slug)
+	if err != nil {
+		return nil, err
+	}
+	// A list covering a fraction of the episodes is the wrong show, not a list
+	// that's behind: acting on it would skip real episodes.
+	if aired := media.AiredEpisodes(); aired >= 24 && len(kinds) < aired/4 {
+		slog.Warn("animefillerlist entry covers too few episodes; ignoring it",
+			"media", media.ID, "slug", slug, "listed", len(kinds), "aired", aired)
+		return nil, nil
+	}
+	return kinds, nil
 }
 
 func matchShow(shows []fillerShow, media anilist.Media) string {
@@ -72,19 +83,24 @@ func matchShow(shows []fillerShow, media anilist.Media) string {
 			want[n] = true
 		}
 	}
+	// A show's own name wins over one quoted in brackets: the index lists
+	// re-cuts and spin-offs such as "One Pace (One Piece)" before the show
+	// itself, and their episode numbering isn't the show's.
+	var alt string
 	for _, s := range shows {
-		names := []string{s.Title}
+		name, bracketed := s.Title, ""
 		// "Bleach: Thousand-Year Blood War (Bleach: Sennen Kessen-hen)"
 		if m := altTitle.FindStringSubmatch(s.Title); m != nil {
-			names = []string{m[1], m[2]}
+			name, bracketed = m[1], m[2]
 		}
-		for _, n := range names {
-			if want[mapping.NormalizeTitle(n)] {
-				return s.Slug
-			}
+		if want[mapping.NormalizeTitle(name)] {
+			return s.Slug
+		}
+		if alt == "" && bracketed != "" && want[mapping.NormalizeTitle(bracketed)] {
+			alt = s.Slug
 		}
 	}
-	return ""
+	return alt
 }
 
 func (f *FillerList) index(ctx context.Context) ([]fillerShow, error) {

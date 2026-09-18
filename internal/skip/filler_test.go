@@ -65,6 +65,23 @@ func TestFillerListKinds(t *testing.T) {
 	}
 }
 
+func TestMatchShowPrefersTheShowsOwnTitle(t *testing.T) {
+	// The index lists re-cuts before the show itself; their episode numbering
+	// isn't the show's, so the bracketed name must not win.
+	shows := []fillerShow{
+		{"one-pace", "One Pace (One Piece)"},
+		{"one-piece", "One Piece"},
+	}
+	onePiece := anilist.Media{Title: anilist.Title{English: "ONE PIECE", Romaji: "ONE PIECE"}}
+	if got := matchShow(shows, onePiece); got != "one-piece" {
+		t.Fatalf("got %q, want one-piece", got)
+	}
+	// A bracketed name is still used when nothing else matches.
+	if got := matchShow(shows[:1], onePiece); got != "one-pace" {
+		t.Fatalf("bracketed fallback: got %q", got)
+	}
+}
+
 func TestMatchShowUsesParentheticalTitles(t *testing.T) {
 	shows := []fillerShow{
 		{"naruto", "Naruto"},
@@ -76,5 +93,33 @@ func TestMatchShowUsesParentheticalTitles(t *testing.T) {
 	}
 	if got := matchShow(shows, anilist.Media{Title: anilist.Title{Romaji: "Boruto"}}); got != "" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestKindsIgnoresAListCoveringTooFewEpisodes(t *testing.T) {
+	// A long-running show matched to a short entry: acting on it would skip
+	// real episodes, so it's ignored.
+	index := []byte(`<a href="/shows/naruto-shippuden">Naruto Shippuden</a>`)
+	show := []byte(`<tr class="filler odd" id="eps-1"><tr class="manga_canon even" id="eps-2">`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/shows" {
+			w.Write(index)
+			return
+		}
+		w.Write(show)
+	}))
+	defer srv.Close()
+
+	f := &FillerList{Client: httpx.New(httpx.Options{}), BaseURL: srv.URL}
+	long := anilist.Media{ID: 1735, Title: anilist.Title{English: "Naruto Shippuden"}, Episodes: 500, Status: "FINISHED"}
+	kinds, err := f.Kinds(context.Background(), long)
+	if err != nil || kinds != nil {
+		t.Fatalf("kinds = %v, err = %v", kinds, err)
+	}
+
+	// A short show with the same list is fine.
+	short := anilist.Media{ID: 2, Title: anilist.Title{English: "Naruto Shippuden"}, Episodes: 2, Status: "FINISHED"}
+	if kinds, err = f.Kinds(context.Background(), short); err != nil || len(kinds) != 2 {
+		t.Fatalf("short show: kinds = %v, err = %v", kinds, err)
 	}
 }
