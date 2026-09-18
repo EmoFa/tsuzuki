@@ -14,7 +14,8 @@ in [mpv](https://mpv.io), remembering where you stopped and keeping your
   stops partway, moves on to the next provider at the same position.
 - **Gets past Cloudflare and DDoS-Guard** with a built-in Chrome/Chromium session.
 - **Continue where you left off:** per-episode history, resume, and autoplay. Rewatch
-  a show and progress counts from episode 1 again without losing the first watch.
+  a show and progress counts from episode 1 again: episodes from the earlier watch
+  show faintly, so it's clear where you are now.
 - **Browse** this season, trending, popular, top-rated and upcoming anime, filtered by
   genre and format.
 - **AniList tracking** with a browser login, or fully local tracking. Finish a show
@@ -113,7 +114,7 @@ so only what you actually play here turns up under **Continue watching**.
 | | <kbd>l</kbd> | Change the list status |
 | | <kbd>s</kbd> | Subtitle languages for this show |
 | | <kbd>r</kbd> | Open the sequel |
-| | <kbd>R</kbd> | Rewatch from episode 1 (history kept) |
+| | <kbd>R</kbd> | Rewatch from episode 1 (earlier watch shown faintly) |
 | Browse | <kbd>←</kbd> <kbd>→</kbd> | Switch list |
 | | <kbd>f</kbd> | Filter by genre and format |
 | Finished a show | <kbd>1</kbd>–<kbd>9</kbd>, <kbd>0</kbd> | Rate it (0 = 10), or <kbd>s</kbd> to skip |

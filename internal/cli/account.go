@@ -299,6 +299,40 @@ func scoreNote(r tracker.Result) string {
 	return "Rated " + score + "/10."
 }
 
+// watchedThrough is how far a show has been watched: the furthest episode
+// completed here, or what the user's list says, whichever is further. It's the
+// snapshot a rewatch keeps so earlier episodes still show as watched.
+func watchedThrough(ctx context.Context, app *App, media anilist.Media) (int, error) {
+	st, err := app.Store(ctx)
+	if err != nil {
+		return 0, err
+	}
+	through := 0
+	eps, err := st.ShowProgress(ctx, media.ID)
+	if err != nil {
+		return 0, err
+	}
+	for _, p := range eps {
+		if p.Completed && int(p.Episode) > through {
+			through = int(p.Episode)
+		}
+	}
+	entry, err := st.ListEntry(ctx, media.ID)
+	if err != nil {
+		return 0, err
+	}
+	if entry != nil {
+		listThrough := entry.Progress
+		if entry.Status == tracker.Completed && media.Episodes > listThrough {
+			listThrough = media.Episodes
+		}
+		if listThrough > through {
+			through = listThrough
+		}
+	}
+	return through, nil
+}
+
 func newRewatchCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "rewatch <anilist-id>",
@@ -314,7 +348,19 @@ func newRewatchCmd(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			round, err := st.StartRound(ctx, id)
+			al, err := app.AniList(ctx)
+			if err != nil {
+				return err
+			}
+			media, err := al.Media(ctx, id)
+			if err != nil {
+				return err
+			}
+			through, err := watchedThrough(ctx, app, media)
+			if err != nil {
+				return err
+			}
+			round, err := st.StartRound(ctx, id, through)
 			if err != nil {
 				return err
 			}

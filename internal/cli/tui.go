@@ -237,7 +237,15 @@ func (s *tuiServices) StartRewatch(ctx context.Context, mediaID int) (string, er
 	if err != nil {
 		return "", err
 	}
-	round, err := st.StartRound(ctx, mediaID)
+	media, err := s.anilist.Media(ctx, mediaID)
+	if err != nil {
+		return "", err
+	}
+	through, err := watchedThrough(ctx, s.app, media)
+	if err != nil {
+		return "", err
+	}
+	round, err := st.StartRound(ctx, mediaID, through)
 	if err != nil {
 		return "", err
 	}
@@ -263,8 +271,8 @@ func (s *tuiServices) WatchedBefore(ctx context.Context, mediaID int) (map[float
 	return s.store.WatchedBefore(ctx, mediaID)
 }
 
-func (s *tuiServices) Round(ctx context.Context, mediaID int) (int, error) {
-	return s.store.Round(ctx, mediaID)
+func (s *tuiServices) Round(ctx context.Context, mediaID int) (round, watchedBefore int, err error) {
+	return s.store.RoundInfo(ctx, mediaID)
 }
 
 func (s *tuiServices) SetWatched(ctx context.Context, media anilist.Media, from, to float64, watched bool) (string, error) {

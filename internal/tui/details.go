@@ -37,7 +37,9 @@ type detailsKindsMsg struct {
 }
 
 type detailsRoundMsg struct {
-	round   int
+	round int
+	// through is how far the show had been watched when this round started.
+	through int
 	watched map[float64]bool
 }
 
@@ -97,6 +99,7 @@ type detailsScreen struct {
 	kinds         map[int]skip.EpisodeKind
 
 	round         int // watch-through, from 1
+	beforeThrough int // how far it had been watched when this round started
 	watchedBefore map[float64]bool
 	confirming    string // "rewatch" while asking
 	jumping       bool
@@ -131,7 +134,7 @@ func (d *detailsScreen) Refresh() tea.Cmd {
 func (d *detailsScreen) loadRound() tea.Cmd {
 	ctx, svc, id := d.ctx, d.svc, d.media.ID
 	return func() tea.Msg {
-		round, err := svc.Round(ctx, id)
+		round, through, err := svc.Round(ctx, id)
 		if err != nil {
 			return nil
 		}
@@ -139,7 +142,7 @@ func (d *detailsScreen) loadRound() tea.Cmd {
 		if err != nil {
 			return nil
 		}
-		return detailsRoundMsg{round, watched}
+		return detailsRoundMsg{round, through, watched}
 	}
 }
 
@@ -354,7 +357,7 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 		d.sequels = msg.sequels
 
 	case detailsRoundMsg:
-		d.round, d.watchedBefore = msg.round, msg.watched
+		d.round, d.beforeThrough, d.watchedBefore = msg.round, msg.through, msg.watched
 
 	case detailsWatchedMsg:
 		if msg.err != nil {
@@ -533,11 +536,28 @@ func (d *detailsScreen) listWatchedThrough() float64 {
 	if d.entry == nil {
 		return 0
 	}
+	// During a rewatch only a rewatching entry describes this round; anything
+	// else on the list belongs to the watch before it.
+	if d.round > 1 && d.entry.Status != tracker.Repeating {
+		return 0
+	}
 	through := float64(d.entry.Progress)
 	if d.entry.Status == tracker.Completed && float64(d.media.Episodes) > through {
 		through = float64(d.media.Episodes)
 	}
 	return through
+}
+
+// started reports whether the show has been begun at all, here or on the
+// user's list, or is being rewatched: only then is an episode "next up".
+func (d *detailsScreen) started() bool {
+	return len(d.progress) > 0 || d.round > 1 || d.listWatchedThrough() > 0
+}
+
+// watchedEarlier reports an episode watched before this rewatch started: here
+// in an earlier round, or as far as the show had been watched at the time.
+func (d *detailsScreen) watchedEarlier(n float64) bool {
+	return d.round > 1 && (d.watchedBefore[n] || n <= float64(d.beforeThrough))
 }
 
 // nextUp is the episode "continue" plays: after the most recently watched one,
@@ -657,14 +677,14 @@ func (d *detailsScreen) episodeRow(i int, next float64, width int) string {
 	} else if ok && p.Duration > 0 {
 		mark, markStyle = "◐", styleWarn
 		detail = fmt.Sprintf("%s / %s", clock(p.Position), clock(p.Duration))
-	} else if n == next && d.progressSet && len(d.progress) > 0 {
+	} else if n == next && d.progressSet && d.started() {
 		mark, markStyle = "▶", styleInfo
 		detail = "next"
 	} else if n <= d.listWatchedThrough() {
 		// Watched according to the user's list, though not played here.
 		mark, markStyle = "✓", styleGood
-	} else if d.watchedBefore[n] {
-		// Watched in an earlier round, but not yet in this rewatch.
+	} else if d.watchedEarlier(n) {
+		// Watched before this rewatch: dim, so the rewatch's own progress stands out.
 		mark, markStyle = "✓", styleMuted
 	} else {
 		mark = " "

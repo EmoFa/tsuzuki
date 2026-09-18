@@ -85,21 +85,42 @@ func (s *Store) Round(ctx context.Context, mediaID int) (int, error) {
 }
 
 // StartRound begins another watch-through, returning its number. Earlier
-// rounds' progress stays in history.
-func (s *Store) StartRound(ctx context.Context, mediaID int) (int, error) {
-	round, err := s.Round(ctx, mediaID)
+// rounds' progress stays in history, and watchedThrough records how far the
+// show had been watched, so those episodes can still be marked faintly when
+// the earlier watch was only recorded on a tracker.
+func (s *Store) StartRound(ctx context.Context, mediaID, watchedThrough int) (int, error) {
+	round, before, err := s.RoundInfo(ctx, mediaID)
 	if err != nil {
 		return 0, err
 	}
 	round++
+	if watchedThrough > before {
+		before = watchedThrough
+	}
 	_, err = s.DB.ExecContext(ctx, `
-		INSERT INTO show_rounds (media_id, round, started_at) VALUES (?, ?, ?)
-		ON CONFLICT (media_id) DO UPDATE SET round = excluded.round, started_at = excluded.started_at`,
-		mediaID, round, time.Now().UnixMilli())
+		INSERT INTO show_rounds (media_id, round, started_at, watched_before) VALUES (?, ?, ?, ?)
+		ON CONFLICT (media_id) DO UPDATE SET round = excluded.round,
+			started_at = excluded.started_at, watched_before = excluded.watched_before`,
+		mediaID, round, time.Now().UnixMilli(), before)
 	if err != nil {
 		return 0, err
 	}
 	return round, nil
+}
+
+// RoundInfo is the show's current watch-through and how far it had been
+// watched when that round started (0 on a first watch).
+func (s *Store) RoundInfo(ctx context.Context, mediaID int) (round, watchedBefore int, err error) {
+	round = 1
+	err = s.DB.QueryRowContext(ctx,
+		"SELECT round, watched_before FROM show_rounds WHERE media_id = ?", mediaID).Scan(&round, &watchedBefore)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 1, 0, nil
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	return round, watchedBefore, nil
 }
 
 // WatchedBefore reports the episodes completed in earlier rounds.

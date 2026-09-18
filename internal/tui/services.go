@@ -54,8 +54,9 @@ type Services interface {
 	StartRewatch(ctx context.Context, mediaID int) (string, error)
 	// WatchedBefore reports episodes completed in earlier watch-throughs.
 	WatchedBefore(ctx context.Context, mediaID int) (map[float64]bool, error)
-	// Round is the show's current watch-through, from 1.
-	Round(ctx context.Context, mediaID int) (int, error)
+	// Round is the show's current watch-through (from 1) and how far it had
+	// been watched when that round started.
+	Round(ctx context.Context, mediaID int) (round, watchedBefore int, err error)
 
 	// SetScore rates a show on the list from 1 to 10, returning a note.
 	SetScore(ctx context.Context, mediaID int, score float64) (string, error)

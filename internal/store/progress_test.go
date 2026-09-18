@@ -141,7 +141,7 @@ func TestRewatchRounds(t *testing.T) {
 	save(1, true)
 	save(2, true)
 
-	round, err := s.StartRound(ctx, 1)
+	round, err := s.StartRound(ctx, 1, 2)
 	if round != 2 || err != nil {
 		t.Fatalf("StartRound = %d, %v", round, err)
 	}
@@ -206,7 +206,7 @@ func TestSetWatched(t *testing.T) {
 	}
 
 	// Marks belong to the current round only.
-	if _, err := s.StartRound(ctx, 1); err != nil {
+	if _, err := s.StartRound(ctx, 1, 0); err != nil {
 		t.Fatal(err)
 	}
 	if p, _ = s.EpisodeProgress(ctx, 1, 3); p != nil {
@@ -231,5 +231,32 @@ func TestRecentShowsPicksTheFurthestEpisodeOnTies(t *testing.T) {
 	recent, err := s.RecentShows(ctx, 5)
 	if err != nil || len(recent) != 1 || recent[0].Episode != 71 {
 		t.Fatalf("recent = %+v, %v (want episode 71, not the first one)", recent, err)
+	}
+}
+
+func TestStartRoundRemembersHowFarWatched(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+
+	round, before, err := s.RoundInfo(ctx, 1)
+	if round != 1 || before != 0 || err != nil {
+		t.Fatalf("first watch: round %d, before %d, %v", round, before, err)
+	}
+
+	// Rewatching a show finished elsewhere: nothing was played here, but the
+	// snapshot remembers how far it had been watched.
+	if _, err := s.StartRound(ctx, 1, 28); err != nil {
+		t.Fatal(err)
+	}
+	if round, before, _ = s.RoundInfo(ctx, 1); round != 2 || before != 28 {
+		t.Fatalf("round %d, watched before %d", round, before)
+	}
+
+	// A further rewatch keeps the furthest point, so nothing stops being dim.
+	if _, err := s.StartRound(ctx, 1, 3); err != nil {
+		t.Fatal(err)
+	}
+	if round, before, _ = s.RoundInfo(ctx, 1); round != 3 || before != 28 {
+		t.Fatalf("round %d, watched before %d", round, before)
 	}
 }

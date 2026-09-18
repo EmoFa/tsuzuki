@@ -39,6 +39,7 @@ type fakeServices struct {
 	scores   map[int]float64
 
 	rounds        int
+	beforeThrough int
 	watchedBefore map[float64]bool
 	marked        []string
 }
@@ -194,6 +195,12 @@ func (f *fakeServices) StartRewatch(_ context.Context, id int) (string, error) {
 	defer f.mu.Unlock()
 	f.rounds++
 	f.watchedBefore = map[float64]bool{1: true, 2: true}
+	// However far the show had been watched, from history or the list.
+	for _, e := range f.entries {
+		if e.MediaID == id && e.Status == "COMPLETED" {
+			f.beforeThrough = frieren2.Episodes
+		}
+	}
 	f.progress = nil
 	return fmt.Sprintf("Rewatch started (round %d).", f.rounds+1), nil
 }
@@ -204,10 +211,10 @@ func (f *fakeServices) WatchedBefore(_ context.Context, id int) (map[float64]boo
 	return f.watchedBefore, nil
 }
 
-func (f *fakeServices) Round(_ context.Context, id int) (int, error) {
+func (f *fakeServices) Round(_ context.Context, id int) (round, watchedBefore int, err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.rounds + 1, nil
+	return f.rounds + 1, f.beforeThrough, nil
 }
 
 func (f *fakeServices) SetScore(_ context.Context, id int, score float64) (string, error) {
@@ -918,5 +925,78 @@ func TestDetailsMarksFromAniListProgress(t *testing.T) {
 	apply(d.loadEntry())
 	if through := d.listWatchedThrough(); through != 0 {
 		t.Errorf("planning marked %v episodes", through)
+	}
+}
+
+// marksIn returns the mark shown for each episode: "done" (green), "dim"
+// (watched before this rewatch), "part", "next" or "none".
+func marksIn(d *detailsScreen, episodes int) []string {
+	out := make([]string, 0, episodes)
+	next := d.nextUp()
+	for i := range episodes {
+		row := d.episodeRow(i, next, 100)
+		switch {
+		case strings.Contains(row, styleGood.Render("✓")):
+			out = append(out, "done")
+		case strings.Contains(row, styleMuted.Render("✓")):
+			out = append(out, "dim")
+		case strings.Contains(row, styleWarn.Render("◐")):
+			out = append(out, "part")
+		case strings.Contains(row, styleInfo.Render("▶")):
+			out = append(out, "next")
+		default:
+			out = append(out, "none")
+		}
+	}
+	return out
+}
+
+func TestRewatchDimsTheEarlierWatch(t *testing.T) {
+	// Completed on AniList, never played here, then rewatched: the first watch
+	// should show faintly so the rewatch's own progress stands out.
+	svc := &fakeServices{entries: []store.ListEntry{{MediaID: frieren2.ID, Status: "COMPLETED", UpdatedAt: time.Now()}}}
+	d := newDetails(context.Background(), svc, frieren2, domain.Sub)
+	var apply func(tea.Cmd)
+	apply = func(cmd tea.Cmd) {
+		for _, msg := range runBatch(cmd) {
+			switch msg.(type) {
+			case nil, toastMsg:
+			default:
+				_, next := d.Update(msg)
+				apply(next)
+			}
+		}
+	}
+	apply(d.Init())
+	for i, m := range marksIn(d, 3) {
+		if m != "done" {
+			t.Fatalf("before the rewatch, episode %d is %q, want done", i+1, m)
+		}
+	}
+
+	// Start the rewatch, and report it as rewatching on the list.
+	_, cmd := d.Update(tea.KeyPressMsg{Code: 'R', Text: "R"})
+	apply(cmd)
+	_, cmd = d.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	apply(cmd)
+	svc.entries = []store.ListEntry{{MediaID: frieren2.ID, Status: "REPEATING", Progress: 0, UpdatedAt: time.Now()}}
+	apply(d.loadEntry())
+
+	marks := marksIn(d, frieren2.Episodes)
+	if marks[0] != "next" {
+		t.Errorf("episode 1 is %q, want next", marks[0])
+	}
+	for i, m := range marks[1:] {
+		if m != "dim" {
+			t.Fatalf("episode %d is %q, want dim (watched before the rewatch)", i+2, m)
+		}
+	}
+
+	// Watching episode 1 in this round marks it normally, the rest stay dim.
+	svc.progress = []store.Progress{{MediaID: frieren2.ID, Episode: 1, Completed: true, UpdatedAt: time.Now()}}
+	apply(d.loadProgress())
+	marks = marksIn(d, 3)
+	if marks[0] != "done" || marks[1] != "next" || marks[2] != "dim" {
+		t.Fatalf("during the rewatch: %v, want [done next dim]", marks[:3])
 	}
 }
