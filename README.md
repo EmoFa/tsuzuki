@@ -102,6 +102,8 @@ on your machine.
 | | <kbd>,</kbd> | Settings (where <kbd>L</kbd> logs in and <kbd>S</kbd> syncs) |
 | Show details | <kbd>Enter</kbd> | Play the selected episode |
 | | <kbd>c</kbd> | Continue from the next unwatched episode |
+| | <kbd>#</kbd> | Jump to an episode number |
+| | <kbd>w</kbd> / <kbd>W</kbd> | Mark the episode watched (toggle) / everything up to it |
 | | <kbd>m</kbd> | Switch between sub and dub |
 | | <kbd>l</kbd> | Change the list status |
 | | <kbd>s</kbd> | Subtitle languages for this show |
@@ -133,6 +135,7 @@ tsuzuki history                    # recently watched
 tsuzuki list watching              # your list (watching, planning, completed, ...)
 tsuzuki rate 154587 9              # score a show from 1 to 10
 tsuzuki rewatch 154587             # start again from episode 1, keeping history
+tsuzuki mark 1735 57-71            # mark episodes watched (--unwatched to undo)
 tsuzuki login | logout | whoami | sync
 tsuzuki config init | edit | check | path
 tsuzuki doctor [--streams]         # check dependencies, services and providers

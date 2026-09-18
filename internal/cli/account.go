@@ -14,6 +14,7 @@ import (
 
 	"github.com/EmoFa/tsuzuki/internal/anilist"
 	"github.com/EmoFa/tsuzuki/internal/auth"
+	"github.com/EmoFa/tsuzuki/internal/session"
 	"github.com/EmoFa/tsuzuki/internal/tracker"
 )
 
@@ -338,4 +339,89 @@ func newRewatchCmd(app *App) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// setWatched marks a range of episodes watched or not, and moves the user's
+// list on when marking watched (list progress never goes backwards).
+func setWatched(ctx context.Context, app *App, media anilist.Media, from, to float64, watched bool) (string, error) {
+	st, err := app.Store(ctx)
+	if err != nil {
+		return "", err
+	}
+	n := 0
+	for ep := from; ep <= to; ep++ {
+		if err := st.SetWatched(ctx, media.ID, ep, watched); err != nil {
+			return "", err
+		}
+		n++
+	}
+	what := session.EpisodeRange(from, to)
+	if !watched {
+		return fmt.Sprintf("Unmarked %s. Your list keeps its progress.", what), nil
+	}
+	note := fmt.Sprintf("Marked %s as watched.", what)
+	if app.Config.Tracking.Backend == "local" {
+		return note, nil
+	}
+	listNote, err := app.trackWatched(ctx, media, to)
+	if err != nil {
+		return note + " Updating your list failed: " + firstLineOf(err.Error()), nil
+	}
+	return note + " " + listNote, nil
+}
+
+func newMarkCmd(app *App) *cobra.Command {
+	var unwatched bool
+	cmd := &cobra.Command{
+		Use:   "mark <anilist-id> <episode|first-last>",
+		Short: "Mark episodes as watched (or not), for what you watched elsewhere",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			id, err := strconv.Atoi(args[0])
+			if err != nil {
+				return fmt.Errorf("anilist id must be a number, not %q", args[0])
+			}
+			from, to, err := episodeRangeArg(args[1])
+			if err != nil {
+				return err
+			}
+			al, err := app.AniList(ctx)
+			if err != nil {
+				return err
+			}
+			media, err := al.Media(ctx, id)
+			if err != nil {
+				return err
+			}
+			note, err := setWatched(ctx, app, media, from, to, !unwatched)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), note)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&unwatched, "unwatched", false, "mark them unwatched instead")
+	return cmd
+}
+
+// episodeRangeArg reads "7" or "7-12".
+func episodeRangeArg(arg string) (from, to float64, err error) {
+	first, last, ranged := strings.Cut(arg, "-")
+	from, err = strconv.ParseFloat(strings.TrimSpace(first), 64)
+	if err != nil || from <= 0 {
+		return 0, 0, fmt.Errorf("episode must be a positive number, not %q", first)
+	}
+	to = from
+	if ranged {
+		to, err = strconv.ParseFloat(strings.TrimSpace(last), 64)
+		if err != nil || to < from {
+			return 0, 0, fmt.Errorf("%q is not an episode range like 7-12", arg)
+		}
+	}
+	if to-from > 2000 {
+		return 0, 0, fmt.Errorf("%q covers too many episodes", arg)
+	}
+	return from, to, nil
 }

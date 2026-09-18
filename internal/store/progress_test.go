@@ -170,3 +170,47 @@ func TestRewatchRounds(t *testing.T) {
 		t.Fatalf("recent = %+v, %v", recent, err)
 	}
 }
+
+func TestSetWatched(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+
+	if err := s.SetWatched(ctx, 1, 3, true); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.EpisodeProgress(ctx, 1, 3)
+	if err != nil || p == nil || !p.Completed {
+		t.Fatalf("marked = %+v, %v", p, err)
+	}
+
+	// Marking an episode watched keeps a position already recorded.
+	if err := s.SaveProgress(ctx, Progress{MediaID: 1, Episode: 4, Position: 5 * time.Minute,
+		Duration: 24 * time.Minute, Provider: "senshi", Mode: "sub"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetWatched(ctx, 1, 4, true); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ = s.EpisodeProgress(ctx, 1, 4); p == nil || !p.Completed || p.Position != 5*time.Minute {
+		t.Fatalf("episode 4 = %+v", p)
+	}
+
+	// Unmarking forgets it.
+	if err := s.SetWatched(ctx, 1, 4, false); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ = s.EpisodeProgress(ctx, 1, 4); p != nil {
+		t.Fatalf("still recorded: %+v", p)
+	}
+
+	// Marks belong to the current round only.
+	if _, err := s.StartRound(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ = s.EpisodeProgress(ctx, 1, 3); p != nil {
+		t.Fatalf("round 2 inherited the mark: %+v", p)
+	}
+	if before, _ := s.WatchedBefore(ctx, 1); !before[3] {
+		t.Error("round 1's mark should show as watched before")
+	}
+}

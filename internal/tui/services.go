@@ -46,6 +46,9 @@ type Services interface {
 	SaveShowPrefs(ctx context.Context, p store.ShowPrefs) error
 	DeleteShowPrefs(ctx context.Context, mediaID int) error
 
+	// SetWatched marks episodes from..to (inclusive) watched or not, returning a
+	// note. Marking watched also moves your list on; unmarking is local only.
+	SetWatched(ctx context.Context, media anilist.Media, from, to float64, watched bool) (string, error)
 	// StartRewatch begins another watch-through: progress counts from episode 1
 	// again and the list says Rewatching. Returns a note for the user.
 	StartRewatch(ctx context.Context, mediaID int) (string, error)

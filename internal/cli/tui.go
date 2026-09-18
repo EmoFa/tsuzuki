@@ -266,3 +266,7 @@ func (s *tuiServices) WatchedBefore(ctx context.Context, mediaID int) (map[float
 func (s *tuiServices) Round(ctx context.Context, mediaID int) (int, error) {
 	return s.store.Round(ctx, mediaID)
 }
+
+func (s *tuiServices) SetWatched(ctx context.Context, media anilist.Media, from, to float64, watched bool) (string, error) {
+	return setWatched(ctx, s.app, media, from, to, watched)
+}

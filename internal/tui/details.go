@@ -3,7 +3,9 @@ package tui
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +38,11 @@ type detailsKindsMsg struct {
 type detailsRoundMsg struct {
 	round   int
 	watched map[float64]bool
+}
+
+type detailsWatchedMsg struct {
+	note string
+	err  error
 }
 
 type detailsRewatchMsg struct {
@@ -91,6 +98,8 @@ type detailsScreen struct {
 	round         int // watch-through, from 1
 	watchedBefore map[float64]bool
 	confirming    string // "rewatch" while asking
+	jumping       bool
+	jumpInput     textinput.Model
 	sequels       []anilist.Media
 	prefs         *store.ShowPrefs // nil: the show uses the config
 	editingSubs   bool
@@ -269,6 +278,9 @@ var (
 	keySubs     = key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "subtitles"))
 	keySequel   = key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "sequel"))
 	keyRewatch  = key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "rewatch"))
+	keyWatched  = key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "mark watched"))
+	keyThrough  = key.NewBinding(key.WithKeys("W"), key.WithHelp("W", "mark up to here"))
+	keyJump     = key.NewBinding(key.WithKeys("#"), key.WithHelp("#", "jump to episode"))
 )
 
 func (d *detailsScreen) Help() []key.Binding {
@@ -290,7 +302,13 @@ func (d *detailsScreen) Help() []key.Binding {
 			key.NewBinding(key.WithKeys("n", "esc"), key.WithHelp("n", "no")),
 		}
 	}
-	keys := []key.Binding{keyPlay, keyContinue, keyMode, keyStatus, keySubs, keyRewatch}
+	if d.jumping {
+		return []key.Binding{
+			key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "go")),
+			key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+		}
+	}
+	keys := []key.Binding{keyPlay, keyContinue, keyJump, keyWatched, keyThrough, keyMode, keyStatus, keySubs, keyRewatch}
 	if len(d.sequels) > 0 {
 		keys = append(keys, keySequel)
 	}
@@ -300,7 +318,7 @@ func (d *detailsScreen) Help() []key.Binding {
 // CapturesInput keeps esc for cancelling the status picker and typed text for
 // the subtitle editor.
 func (d *detailsScreen) CapturesInput() bool {
-	return d.pickingStatus || d.editingSubs || d.confirming != ""
+	return d.pickingStatus || d.editingSubs || d.confirming != "" || d.jumping
 }
 
 func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
@@ -337,6 +355,12 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 	case detailsRoundMsg:
 		d.round, d.watchedBefore = msg.round, msg.watched
 
+	case detailsWatchedMsg:
+		if msg.err != nil {
+			return d, toast("Couldn't change the marks: "+firstLine(msg.err.Error()), true)
+		}
+		return d, tea.Batch(toast(msg.note, false), d.loadProgress(), d.loadEntry())
+
 	case detailsRewatchMsg:
 		if msg.err != nil {
 			return d, toast("Couldn't start a rewatch: "+firstLine(msg.err.Error()), true)
@@ -367,6 +391,20 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 		d.setNumbers()
 
 	case tea.KeyPressMsg:
+		if d.jumping {
+			switch msg.String() {
+			case "esc":
+				d.jumping = false
+			case "enter":
+				d.jumping = false
+				return d, d.jumpTo(d.jumpInput.Value())
+			default:
+				var cmd tea.Cmd
+				d.jumpInput, cmd = d.jumpInput.Update(msg)
+				return d, cmd
+			}
+			return d, nil
+		}
 		if d.confirming != "" {
 			what := d.confirming
 			d.confirming = ""
@@ -407,6 +445,22 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 			return d, nil
 		case key.Matches(msg, keySubs):
 			return d, d.startEditingSubs()
+		case key.Matches(msg, keyJump) && len(d.numbers) > 0:
+			in := textinput.New()
+			in.Prompt = ""
+			in.Placeholder = "number"
+			in.CharLimit = 6
+			d.jumpInput, d.jumping = in, true
+			return d, d.jumpInput.Focus()
+		case key.Matches(msg, keyWatched) && len(d.numbers) > 0:
+			n := d.numbers[d.list.cursor]
+			watched := true
+			if p, ok := d.progress[n]; ok && p.Completed {
+				watched = false
+			}
+			return d, d.setWatched(n, n, watched)
+		case key.Matches(msg, keyThrough) && len(d.numbers) > 0:
+			return d, d.setWatched(d.numbers[0], d.numbers[d.list.cursor], true)
 		case key.Matches(msg, keyRewatch):
 			d.confirming = "rewatch"
 			return d, nil
@@ -534,6 +588,10 @@ func (d *detailsScreen) View(width, height int) string {
 	if d.round > 1 {
 		header += fmt.Sprintf("  ·  rewatch, round %d", d.round)
 	}
+	if d.jumping {
+		d.jumpInput.SetWidth(8)
+		header += styleMuted.Render("  ·  ") + styleWarn.Render("jump to episode: ") + d.jumpInput.View()
+	}
 	if d.progressSet && len(d.progress) > 0 {
 		header += styleMuted.Render(fmt.Sprintf("  ·  c continues with episode %s", episodeLabel(next)))
 	}
@@ -627,4 +685,36 @@ func (d *detailsScreen) subtitlesLine(width int) string {
 		text += " (this show)"
 	}
 	return styleMuted.Render(truncate(text+" · s to change", width))
+}
+
+// jumpTo moves the cursor to an episode number the user typed.
+func (d *detailsScreen) jumpTo(value string) tea.Cmd {
+	n, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil {
+		return nil
+	}
+	// The nearest listed episode, so "500" lands on the last one.
+	best, bestDiff := -1, math.Inf(1)
+	for i, ep := range d.numbers {
+		if diff := math.Abs(ep - n); diff < bestDiff {
+			best, bestDiff = i, diff
+		}
+	}
+	if best < 0 {
+		return nil
+	}
+	d.list.setCursor(best)
+	if bestDiff > 0 {
+		return toast(fmt.Sprintf("Episode %s isn't listed; went to %s.", strings.TrimSpace(value), episodeLabel(d.numbers[best])), false)
+	}
+	return nil
+}
+
+// setWatched marks a range of episodes watched or not.
+func (d *detailsScreen) setWatched(from, to float64, watched bool) tea.Cmd {
+	ctx, svc, media := d.ctx, d.svc, d.media
+	return func() tea.Msg {
+		note, err := svc.SetWatched(ctx, media, from, to, watched)
+		return detailsWatchedMsg{note, err}
+	}
 }

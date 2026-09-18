@@ -50,6 +50,27 @@ func (s *Store) SaveProgress(ctx context.Context, p Progress) error {
 	return err
 }
 
+// SetWatched marks an episode watched or not in the show's current round, for
+// episodes watched elsewhere or wrongly recorded. Unmarking forgets the
+// episode's position too.
+func (s *Store) SetWatched(ctx context.Context, mediaID int, episode float64, watched bool) error {
+	round, err := s.Round(ctx, mediaID)
+	if err != nil {
+		return err
+	}
+	if !watched {
+		_, err := s.DB.ExecContext(ctx,
+			"DELETE FROM watch_progress WHERE media_id = ? AND episode = ? AND round = ?", mediaID, episode, round)
+		return err
+	}
+	_, err = s.DB.ExecContext(ctx, `
+		INSERT INTO watch_progress (media_id, episode, round, position_ms, duration_ms, completed, provider, mode, updated_at)
+		VALUES (?, ?, ?, 0, 0, 1, '', '', ?)
+		ON CONFLICT (media_id, episode, round) DO UPDATE SET completed = 1, updated_at = excluded.updated_at`,
+		mediaID, episode, round, time.Now().UnixMilli())
+	return err
+}
+
 // Round is the show's current watch-through, 1 until it's rewatched.
 func (s *Store) Round(ctx context.Context, mediaID int) (int, error) {
 	round := 1

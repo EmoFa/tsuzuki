@@ -40,6 +40,7 @@ type fakeServices struct {
 
 	rounds        int
 	watchedBefore map[float64]bool
+	marked        []string
 }
 
 func (f *fakeServices) Search(context.Context, string) ([]anilist.Media, error) {
@@ -169,6 +170,23 @@ func (f *fakeServices) DeleteShowPrefs(_ context.Context, id int) error {
 	defer f.mu.Unlock()
 	delete(f.prefs, id)
 	return nil
+}
+
+func (f *fakeServices) SetWatched(_ context.Context, media anilist.Media, from, to float64, watched bool) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for ep := from; ep <= to; ep++ {
+		if !watched {
+			f.progress = slices.DeleteFunc(f.progress, func(p store.Progress) bool { return p.Episode == ep })
+			continue
+		}
+		f.progress = append(f.progress, store.Progress{MediaID: media.ID, Episode: ep, Completed: true, UpdatedAt: time.Now()})
+	}
+	f.marked = append(f.marked, fmt.Sprintf("%v-%v=%v", from, to, watched))
+	if !watched {
+		return "Unmarked. Your list keeps its progress.", nil
+	}
+	return "Marked as watched.", nil
 }
 
 func (f *fakeServices) StartRewatch(_ context.Context, id int) (string, error) {
@@ -785,5 +803,74 @@ func TestDetailsRewatch(t *testing.T) {
 	}
 	if next := d.nextUp(); next != 1 {
 		t.Errorf("continue would play episode %v, want 1", next)
+	}
+}
+
+func TestDetailsMarkAndJump(t *testing.T) {
+	svc := &fakeServices{}
+	// A long show, so jumping matters: AniList says 500 episodes.
+	long := anilist.Media{ID: 1735, Title: anilist.Title{English: "Naruto: Shippuden"}, Episodes: 500, Status: "FINISHED", Format: "TV"}
+	d := newDetails(context.Background(), svc, long, domain.Sub)
+	var apply func(tea.Cmd)
+	toasts := []string{}
+	apply = func(cmd tea.Cmd) {
+		for _, msg := range runBatch(cmd) {
+			switch msg := msg.(type) {
+			case nil:
+			case toastMsg:
+				toasts = append(toasts, msg.text)
+			default:
+				_, next := d.Update(msg)
+				apply(next)
+			}
+		}
+	}
+	apply(d.loadProgress())
+	if len(d.numbers) != 500 {
+		t.Fatalf("episodes listed = %d", len(d.numbers))
+	}
+
+	// # jumps to a typed episode.
+	_, cmd := d.Update(tea.KeyPressMsg{Code: '#', Text: "#"})
+	apply(cmd)
+	if !d.jumping || !d.CapturesInput() {
+		t.Fatal("# didn't open the jump input")
+	}
+	d.jumpInput.SetValue("372")
+	_, cmd = d.Update(press("enter"))
+	apply(cmd)
+	if d.jumping || d.numbers[d.list.cursor] != 372 {
+		t.Fatalf("cursor on %v after jumping", d.numbers[d.list.cursor])
+	}
+
+	// w marks the selected episode watched, then unmarks it.
+	_, cmd = d.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	apply(cmd)
+	if p, ok := d.progress[372]; !ok || !p.Completed {
+		t.Fatalf("episode 372 not marked: %+v", d.progress[372])
+	}
+	_, cmd = d.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	apply(cmd)
+	if _, ok := d.progress[372]; ok {
+		t.Fatal("second w didn't unmark")
+	}
+	if got := strings.Join(svc.marked, " "); got != "372-372=true 372-372=false" {
+		t.Errorf("marks = %q", got)
+	}
+	if !slices.ContainsFunc(toasts, func(s string) bool { return strings.Contains(s, "list keeps its progress") }) {
+		t.Errorf("unmarking should say the list is unchanged: %q", toasts)
+	}
+
+	// W marks everything up to the cursor.
+	d.list.setCursor(4) // episode 5
+	_, cmd = d.Update(tea.KeyPressMsg{Code: 'W', Text: "W"})
+	apply(cmd)
+	if got := svc.marked[len(svc.marked)-1]; got != "1-5=true" {
+		t.Fatalf("W marked %q", got)
+	}
+	for ep := 1.0; ep <= 5; ep++ {
+		if p, ok := d.progress[ep]; !ok || !p.Completed {
+			t.Fatalf("episode %v not marked by W", ep)
+		}
 	}
 }
