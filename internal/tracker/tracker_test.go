@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/EmoFa/tsuzuki/internal/anilist"
 	"github.com/EmoFa/tsuzuki/internal/store"
@@ -231,5 +233,78 @@ func TestStartRewatch(t *testing.T) {
 	r, err = tr.EpisodeWatched(ctx, frieren2, 1)
 	if err != nil || r.Entry.Status != Repeating || r.Entry.Progress != 1 {
 		t.Fatalf("first episode of the rewatch = %+v, %v", r, err)
+	}
+}
+
+func TestApplyListProgress(t *testing.T) {
+	st := newStore(t)
+	tr := &Tracker{Store: st}
+	ctx := context.Background()
+	watched := func(mediaID int) []float64 {
+		t.Helper()
+		eps, err := st.ShowProgress(ctx, mediaID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []float64
+		for _, p := range eps {
+			if p.Completed {
+				out = append(out, p.Episode)
+			}
+		}
+		return out
+	}
+
+	// Watching: marks up to the list's progress.
+	st.SaveListEntry(ctx, store.ListEntry{MediaID: 1, Status: Current, Progress: 3, UpdatedAt: time.Now()})
+	if n, err := tr.ApplyListProgress(ctx, 1, 12); err != nil || n != 3 {
+		t.Fatalf("current: added %d, %v", n, err)
+	}
+	if got := watched(1); !slices.Equal(got, []float64{1, 2, 3}) {
+		t.Errorf("current watched = %v", got)
+	}
+
+	// Completed: the whole show, even with the progress field at 0.
+	st.SaveListEntry(ctx, store.ListEntry{MediaID: 2, Status: Completed, Progress: 0, UpdatedAt: time.Now()})
+	if n, _ := tr.ApplyListProgress(ctx, 2, 4); n != 4 {
+		t.Fatalf("completed added %d", n)
+	}
+	if got := watched(2); !slices.Equal(got, []float64{1, 2, 3, 4}) {
+		t.Errorf("completed watched = %v", got)
+	}
+
+	// Planning with no progress, and shows not on the list, add nothing.
+	st.SaveListEntry(ctx, store.ListEntry{MediaID: 3, Status: Planning, UpdatedAt: time.Now()})
+	if n, _ := tr.ApplyListProgress(ctx, 3, 12); n != 0 {
+		t.Errorf("planning added %d", n)
+	}
+	if n, _ := tr.ApplyListProgress(ctx, 99, 12); n != 0 {
+		t.Errorf("unlisted show added %d", n)
+	}
+
+	// Local progress beyond the list is kept, and running twice adds nothing.
+	st.SaveProgress(ctx, store.Progress{MediaID: 1, Episode: 7, Completed: true, Provider: "senshi", Mode: "sub"})
+	if n, _ := tr.ApplyListProgress(ctx, 1, 12); n != 0 {
+		t.Errorf("second run added %d", n)
+	}
+	if got := watched(1); !slices.Equal(got, []float64{1, 2, 3, 7}) {
+		t.Errorf("watched = %v, want the local episode kept", got)
+	}
+}
+
+func TestPullMarksEpisodesFromTheList(t *testing.T) {
+	st := newStore(t)
+	remote := &fakeRemote{list: []anilist.ListItem{
+		{MediaID: frieren2.ID, Status: Completed, Progress: 10, UpdatedAt: time.Now(),
+			Media: anilist.Media{ID: frieren2.ID, Episodes: 10}},
+	}}
+	tr := &Tracker{Store: st, Remote: remote}
+	ctx := context.Background()
+	if n, err := tr.Pull(ctx); err != nil || n != 1 {
+		t.Fatalf("Pull = %d, %v", n, err)
+	}
+	eps, err := st.ShowProgress(ctx, frieren2.ID)
+	if err != nil || len(eps) != 10 {
+		t.Fatalf("progress after sync = %d episodes, %v", len(eps), err)
 	}
 }

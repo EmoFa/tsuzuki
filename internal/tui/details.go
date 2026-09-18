@@ -40,6 +40,8 @@ type detailsRoundMsg struct {
 	watched map[float64]bool
 }
 
+type detailsFilledMsg struct{ added int }
+
 type detailsWatchedMsg struct {
 	note string
 	err  error
@@ -116,7 +118,7 @@ func newDetails(ctx context.Context, svc Services, media anilist.Media, mode dom
 func (d *detailsScreen) Title() string { return truncate(d.media.DisplayTitle(), 40) }
 
 func (d *detailsScreen) Init() tea.Cmd {
-	cmds := []tea.Cmd{d.loadProgress(), d.loadEntry(), d.loadKinds(), d.loadPrefs(), d.loadSequels(), d.loadRound()}
+	cmds := []tea.Cmd{d.fillFromList(), d.loadEntry(), d.loadKinds(), d.loadPrefs(), d.loadSequels(), d.loadRound()}
 	if d.needsProviderEpisodes() {
 		cmds = append(cmds, d.loadEpisodes())
 	}
@@ -125,6 +127,19 @@ func (d *detailsScreen) Init() tea.Cmd {
 
 func (d *detailsScreen) Refresh() tea.Cmd {
 	return tea.Batch(d.loadProgress(), d.loadEntry(), d.loadRound())
+}
+
+// fillFromList marks what the user's list says they've watched, then loads
+// progress, so a show followed on AniList shows its episodes as watched here.
+func (d *detailsScreen) fillFromList() tea.Cmd {
+	ctx, svc, media := d.ctx, d.svc, d.media
+	return func() tea.Msg {
+		added, err := svc.ApplyListProgress(ctx, media)
+		if err != nil {
+			return detailsFilledMsg{}
+		}
+		return detailsFilledMsg{added}
+	}
 }
 
 func (d *detailsScreen) loadRound() tea.Cmd {
@@ -354,6 +369,9 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 
 	case detailsRoundMsg:
 		d.round, d.watchedBefore = msg.round, msg.watched
+
+	case detailsFilledMsg:
+		return d, d.loadProgress()
 
 	case detailsWatchedMsg:
 		if msg.err != nil {

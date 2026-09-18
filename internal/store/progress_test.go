@@ -125,10 +125,12 @@ func TestKV(t *testing.T) {
 func TestRewatchRounds(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()
+	at := time.Now().Add(-time.Hour).Truncate(time.Millisecond)
 	save := func(episode float64, completed bool) {
 		t.Helper()
+		at = at.Add(time.Minute) // distinct times, so "most recent" is unambiguous
 		if err := s.SaveProgress(ctx, Progress{MediaID: 1, Episode: episode, Position: time.Minute,
-			Duration: 24 * time.Minute, Completed: completed, Provider: "senshi", Mode: "sub"}); err != nil {
+			Duration: 24 * time.Minute, Completed: completed, Provider: "senshi", Mode: "sub", UpdatedAt: at}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -212,5 +214,83 @@ func TestSetWatched(t *testing.T) {
 	}
 	if before, _ := s.WatchedBefore(ctx, 1); !before[3] {
 		t.Error("round 1's mark should show as watched before")
+	}
+}
+
+func TestFillWatched(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	old := time.Now().Add(-48 * time.Hour).Truncate(time.Millisecond)
+
+	// Episode 3 is half watched here; it must keep its position and date.
+	if err := s.SaveProgress(ctx, Progress{MediaID: 1, Episode: 3, Position: 8 * time.Minute,
+		Duration: 24 * time.Minute, Provider: "senshi", Mode: "sub", UpdatedAt: old}); err != nil {
+		t.Fatal(err)
+	}
+
+	listTime := time.Now().Add(-time.Hour).Truncate(time.Millisecond)
+	changed, err := s.FillWatched(ctx, 1, 5, listTime)
+	if err != nil || changed != 5 {
+		t.Fatalf("filled %d, %v", changed, err)
+	}
+	eps, err := s.ShowProgress(ctx, 1)
+	if err != nil || len(eps) != 5 {
+		t.Fatalf("progress = %+v, %v", eps, err)
+	}
+	for _, p := range eps {
+		if !p.Completed {
+			t.Errorf("episode %v not completed", p.Episode)
+		}
+		switch p.Episode {
+		case 3:
+			if p.Position != 8*time.Minute || !p.UpdatedAt.Equal(old) {
+				t.Errorf("episode 3 lost its position or date: %+v", p)
+			}
+		case 5:
+			// The furthest episode carries the list's time; earlier ones are
+			// staggered before it so "most recent" means the furthest.
+			if !p.UpdatedAt.Equal(listTime) {
+				t.Errorf("episode 5 dated %v, want %v", p.UpdatedAt, listTime)
+			}
+		default:
+			if !p.UpdatedAt.Before(listTime) {
+				t.Errorf("episode %v dated %v, want before %v", p.Episode, p.UpdatedAt, listTime)
+			}
+		}
+	}
+
+	// Filling again changes nothing, and never unmarks beyond the range.
+	if changed, err = s.FillWatched(ctx, 1, 3, listTime); err != nil || changed != 0 {
+		t.Fatalf("refill changed %d, %v", changed, err)
+	}
+	if eps, _ = s.ShowProgress(ctx, 1); len(eps) != 5 {
+		t.Fatalf("refill dropped episodes: %+v", eps)
+	}
+
+	// A rewatch starts empty again, and filling applies to the new round.
+	if _, err := s.StartRound(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if eps, _ = s.ShowProgress(ctx, 1); len(eps) != 0 {
+		t.Fatalf("round 2 = %+v", eps)
+	}
+	if _, err := s.FillWatched(ctx, 1, 2, listTime); err != nil {
+		t.Fatal(err)
+	}
+	if eps, _ = s.ShowProgress(ctx, 1); len(eps) != 2 || eps[0].Round != 2 {
+		t.Fatalf("round 2 fill = %+v", eps)
+	}
+}
+
+func TestRecentShowsPicksTheFurthestEpisodeOnTies(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	// A whole show marked from a tracker: every episode shares one moment.
+	if _, err := s.FillWatched(ctx, 1, 71, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	recent, err := s.RecentShows(ctx, 5)
+	if err != nil || len(recent) != 1 || recent[0].Episode != 71 {
+		t.Fatalf("recent = %+v, %v (want episode 71, not the first one)", recent, err)
 	}
 }

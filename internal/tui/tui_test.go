@@ -172,6 +172,31 @@ func (f *fakeServices) DeleteShowPrefs(_ context.Context, id int) error {
 	return nil
 }
 
+func (f *fakeServices) ApplyListProgress(_ context.Context, media anilist.Media) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	// Mirrors the tracker: completed shows count as fully watched.
+	through := 0
+	for _, e := range f.entries {
+		if e.MediaID != media.ID {
+			continue
+		}
+		through = e.Progress
+		if e.Status == "COMPLETED" && media.Episodes > through {
+			through = media.Episodes
+		}
+	}
+	added := 0
+	for ep := 1.0; ep <= float64(through); ep++ {
+		if slices.ContainsFunc(f.progress, func(p store.Progress) bool { return p.Episode == ep }) {
+			continue
+		}
+		f.progress = append(f.progress, store.Progress{MediaID: media.ID, Episode: ep, Completed: true, UpdatedAt: time.Now()})
+		added++
+	}
+	return added, nil
+}
+
 func (f *fakeServices) SetWatched(_ context.Context, media anilist.Media, from, to float64, watched bool) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -872,5 +897,36 @@ func TestDetailsMarkAndJump(t *testing.T) {
 		if p, ok := d.progress[ep]; !ok || !p.Completed {
 			t.Fatalf("episode %v not marked by W", ep)
 		}
+	}
+}
+
+func TestDetailsMarksFromAniListProgress(t *testing.T) {
+	// The show is completed on the list, but nothing was ever played here.
+	svc := &fakeServices{entries: []store.ListEntry{{MediaID: frieren2.ID, Status: "COMPLETED", Progress: 0, UpdatedAt: time.Now()}}}
+	d := newDetails(context.Background(), svc, frieren2, domain.Sub)
+	var apply func(tea.Cmd)
+	apply = func(cmd tea.Cmd) {
+		for _, msg := range runBatch(cmd) {
+			switch msg.(type) {
+			case nil, toastMsg:
+			default:
+				_, next := d.Update(msg)
+				apply(next)
+			}
+		}
+	}
+	apply(d.Init())
+
+	if len(d.progress) != frieren2.Episodes {
+		t.Fatalf("marked %d of %d episodes from the list", len(d.progress), frieren2.Episodes)
+	}
+	for ep := 1.0; ep <= float64(frieren2.Episodes); ep++ {
+		if p, ok := d.progress[ep]; !ok || !p.Completed {
+			t.Fatalf("episode %v not marked", ep)
+		}
+	}
+	view := d.View(100, 60)
+	if got := strings.Count(view, "✓"); got < frieren2.Episodes {
+		t.Errorf("view shows %d ticks, want %d:\n%s", got, frieren2.Episodes, view)
 	}
 }

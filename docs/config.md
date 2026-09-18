@@ -69,7 +69,7 @@ providers need (Anikoto), and getting past Cloudflare or DDoS-Guard bot checks.
 
 | Key | Default | Description |
 |---|---|---|
-| `tracking.backend` | `"anilist"` | `"anilist"`: while you're logged in (`tsuzuki login`), your list mirrors AniList. Watched episodes and status changes are sent straight away, and queued to retry when AniList can't be reached. Before you log in, progress is only kept locally. `"local"`: nothing is ever sent to AniList. |
+| `tracking.backend` | `"anilist"` | `"anilist"`: while you're logged in (`tsuzuki login`), your list mirrors AniList. Watched episodes and status changes are sent straight away, and queued to retry when AniList can't be reached. Your list's progress is also filled in as watched episodes here (a Completed show counts as fully watched), both when syncing and when you open a show. Before you log in, progress is only kept locally. `"local"`: nothing is ever sent to AniList. |
 | `tracking.anilist_client_id` | `0` | AniList API client used by `tsuzuki login`. `0` uses tsuzuki's own client. To use your own, create one at <https://anilist.co/settings/developer> with the redirect URL `http://localhost:47281/callback`. |
 
 ## `[skip]`

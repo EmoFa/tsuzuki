@@ -71,6 +71,52 @@ func (s *Store) SetWatched(ctx context.Context, mediaID int, episode float64, wa
 	return err
 }
 
+// FillWatched marks episodes 1..through watched in the show's current round,
+// for progress that came from a tracker rather than from playing here. It
+// never clears anything: an episode already recorded keeps its position, and
+// only episodes with no row at all are dated at.
+func (s *Store) FillWatched(ctx context.Context, mediaID int, through int, at time.Time) (int, error) {
+	if through <= 0 {
+		return 0, nil
+	}
+	round, err := s.Round(ctx, mediaID)
+	if err != nil {
+		return 0, err
+	}
+	if at.IsZero() {
+		at = time.Now()
+	}
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op once committed
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO watch_progress (media_id, episode, round, position_ms, duration_ms, completed, provider, mode, updated_at)
+		VALUES (?, ?, ?, 0, 0, 1, '', '', ?)
+		ON CONFLICT (media_id, episode, round) DO UPDATE SET completed = 1
+		WHERE watch_progress.completed = 0`,
+	)
+	if err != nil {
+		return 0, err
+	}
+	defer stmt.Close() //nolint:errcheck // read-only statement
+	changed := 0
+	for ep := 1; ep <= through; ep++ {
+		// A second apart, so the furthest episode is the most recent: history
+		// and "continue watching" read the latest row.
+		when := at.Add(-time.Duration(through-ep) * time.Second)
+		res, err := stmt.ExecContext(ctx, mediaID, float64(ep), round, when.UnixMilli())
+		if err != nil {
+			return 0, err
+		}
+		if n, err := res.RowsAffected(); err == nil {
+			changed += int(n)
+		}
+	}
+	return changed, tx.Commit()
+}
+
 // Round is the show's current watch-through, 1 until it's rewatched.
 func (s *Store) Round(ctx context.Context, mediaID int) (int, error) {
 	round := 1
@@ -171,9 +217,11 @@ func (s *Store) ShowProgress(ctx context.Context, mediaID int) ([]Progress, erro
 // RecentShows returns the most recently watched episode of each show, newest first.
 func (s *Store) RecentShows(ctx context.Context, limit int) ([]Progress, error) {
 	return s.queryProgress(ctx, `
-		SELECT `+progressColumns+` FROM watch_progress w
-		WHERE updated_at = (SELECT max(updated_at) FROM watch_progress WHERE media_id = w.media_id)
-		GROUP BY media_id
+		SELECT `+progressColumns+` FROM (
+			SELECT `+progressColumns+`,
+				row_number() OVER (PARTITION BY media_id ORDER BY updated_at DESC, episode DESC) AS rn
+			FROM watch_progress
+		) WHERE rn = 1
 		ORDER BY updated_at DESC
 		LIMIT ?`, limit)
 }
