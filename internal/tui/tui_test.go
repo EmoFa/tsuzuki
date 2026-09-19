@@ -22,6 +22,7 @@ import (
 	"github.com/EmoFa/tsuzuki/internal/session"
 	"github.com/EmoFa/tsuzuki/internal/skip"
 	"github.com/EmoFa/tsuzuki/internal/store"
+	"github.com/EmoFa/tsuzuki/internal/tracker"
 )
 
 var frieren2 = anilist.Media{
@@ -203,8 +204,45 @@ func (f *fakeServices) SetWatched(_ context.Context, media anilist.Media, from, 
 		f.progress = append(f.progress, store.Progress{MediaID: media.ID, Episode: ep, Completed: true, UpdatedAt: time.Now()})
 	}
 	f.marked = append(f.marked, fmt.Sprintf("%v-%v=%v", from, to, watched))
+	// Like the real thing: the list follows the marks as far as an unbroken
+	// run from the first episode reaches.
+	done := map[int]bool{}
+	for _, p := range f.progress {
+		if p.MediaID == media.ID && p.Completed {
+			done[int(p.Episode)] = true
+		}
+	}
+	var entry *store.ListEntry
+	for i := range f.entries {
+		if f.entries[i].MediaID == media.ID {
+			entry = &f.entries[i]
+		}
+	}
+	round := 1
+	if f.rounds > 0 {
+		round = f.rounds + 1
+	}
+	was := tracker.ListThrough(entry, media.Episodes, round)
+	want := tracker.WatchedRun(done, was, media.Episodes)
 	if !watched {
-		return "Unmarked. Your list keeps its progress.", nil
+		want = min(want, int(from)-1)
+	}
+	if want == was {
+		if watched {
+			return "Marked as watched. Your list is unchanged.", nil
+		}
+		return "Unmarked.", nil
+	}
+	if entry == nil {
+		f.entries = append(f.entries, store.ListEntry{MediaID: media.ID, UpdatedAt: time.Now()})
+		entry = &f.entries[len(f.entries)-1]
+	}
+	entry.Status, entry.Progress = tracker.Current, want
+	if media.Episodes > 0 && want >= media.Episodes {
+		entry.Status = tracker.Completed
+	}
+	if !watched {
+		return fmt.Sprintf("Unmarked. Your list now says %d episodes watched.", want), nil
 	}
 	return "Marked as watched.", nil
 }
@@ -974,8 +1012,29 @@ func TestDetailsMarkAndJump(t *testing.T) {
 	if got := strings.Join(svc.marked, " "); got != "372-372=true 372-372=false" {
 		t.Errorf("marks = %q", got)
 	}
-	if !slices.ContainsFunc(toasts, func(s string) bool { return strings.Contains(s, "list keeps its progress") }) {
-		t.Errorf("unmarking should say the list is unchanged: %q", toasts)
+	// Episode 372 on its own says nothing about the 371 before it, so the list
+	// stays where it is and only that episode is ticked.
+	if e, _ := svc.ListEntry(context.Background(), long.ID); e != nil && e.Progress != 0 {
+		t.Errorf("marking one episode moved the list to %d", e.Progress)
+	}
+	if !slices.ContainsFunc(toasts, func(s string) bool { return strings.Contains(s, "list is unchanged") }) {
+		t.Errorf("marking past a gap should say the list didn't move: %q", toasts)
+	}
+
+	// A tick that comes from the list unmarks too, rather than being re-marked.
+	svc.entries = []store.ListEntry{{MediaID: long.ID, Status: "CURRENT", Progress: 12, UpdatedAt: time.Now()}}
+	apply(d.loadEntry())
+	d.list.setCursor(11) // episode 12
+	if !d.watched(12) {
+		t.Fatal("episode 12 should read as watched from the list")
+	}
+	_, cmd = d.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	apply(cmd)
+	if d.watched(12) {
+		t.Error("w on a list-derived tick didn't unmark it")
+	}
+	if e, _ := svc.ListEntry(context.Background(), long.ID); e == nil || e.Progress != 11 {
+		t.Errorf("unmarking episode 12 left the list at %+v", e)
 	}
 
 	// W marks everything up to the cursor.

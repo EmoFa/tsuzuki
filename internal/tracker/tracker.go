@@ -87,18 +87,7 @@ func (t *Tracker) EpisodeWatched(ctx context.Context, media anilist.Media, episo
 	if cur != nil && progress <= cur.Progress {
 		return Result{Entry: *cur}, nil
 	}
-
-	e := store.ListEntry{MediaID: media.ID, Status: Current, Progress: progress}
-	if cur != nil {
-		e.Score = cur.Score
-		if cur.Status == Repeating {
-			e.Status = Repeating
-		}
-	}
-	if media.Episodes > 0 && progress >= media.Episodes {
-		e.Status = Completed
-	}
-	return t.save(ctx, e)
+	return t.SetProgress(ctx, media, progress)
 }
 
 // StartRewatch marks a show as being rewatched, with progress back to zero.

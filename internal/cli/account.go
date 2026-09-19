@@ -387,33 +387,111 @@ func newRewatchCmd(app *App) *cobra.Command {
 	}
 }
 
-// setWatched marks a range of episodes watched or not, and moves the user's
-// list on when marking watched (list progress never goes backwards).
+// setWatched marks a range of episodes watched or not, and brings the user's
+// list into step. A list holds one progress number, so it can only say how far
+// an unbroken run from the first episode reaches: marking an episode with
+// earlier ones missing leaves the list where it is, and unmarking one pulls it
+// back to just before that episode.
 func setWatched(ctx context.Context, app *App, media anilist.Media, from, to float64, watched bool) (string, error) {
 	st, err := app.Store(ctx)
 	if err != nil {
 		return "", err
 	}
-	n := 0
 	for ep := from; ep <= to; ep++ {
 		if err := st.SetWatched(ctx, media.ID, ep, watched); err != nil {
 			return "", err
 		}
-		n++
 	}
 	what := session.EpisodeRange(from, to)
-	if !watched {
-		return fmt.Sprintf("Unmarked %s. Your list keeps its progress.", what), nil
-	}
 	note := fmt.Sprintf("Marked %s as watched.", what)
-	if app.Config.Tracking.Backend == "local" {
+	if !watched {
+		note = fmt.Sprintf("Unmarked %s.", what)
+	}
+
+	entry, err := st.ListEntry(ctx, media.ID)
+	if err != nil {
+		return "", err
+	}
+	round, _, err := st.RoundInfo(ctx, media.ID)
+	if err != nil {
+		return "", err
+	}
+	was := tracker.ListThrough(entry, media.Episodes, round)
+	want, err := listProgress(ctx, app, media, round, was)
+	if err != nil {
+		return "", err
+	}
+	if !watched {
+		// The run now stops at the hole just made.
+		want = min(want, int(from)-1)
+	}
+	if want == was {
+		if watched && want < int(to) {
+			return note + fmt.Sprintf(" Your list still says %s: %s aren't watched yet.",
+				episodeCount(was), session.EpisodeRange(float64(was+1), from-1)), nil
+		}
 		return note, nil
 	}
-	listNote, err := app.trackWatched(ctx, media, to)
+
+	t, err := app.Tracker(ctx)
+	if err != nil {
+		return "", err
+	}
+	r, err := t.SetProgress(ctx, media, want)
 	if err != nil {
 		return note + " Updating your list failed: " + firstLineOf(err.Error()), nil
 	}
-	return note + " " + listNote, nil
+	if errors.Is(r.SyncErr, anilist.ErrUnauthorized) {
+		return note + " AniList login expired, run `tsuzuki login` to sync.", nil
+	}
+	if watched {
+		return note + " " + upperFirst(r.Note()) + ".", nil
+	}
+	// Unmarking pulled the list back, which is the part worth saying.
+	note += fmt.Sprintf(" Your list now says %s.", episodeCount(r.Entry.Progress))
+	switch {
+	case r.Synced:
+		note += " AniList updated."
+	case r.SyncErr != nil:
+		note += " AniList sync pending: " + firstLineOf(r.SyncErr.Error())
+	}
+	return note, nil
+}
+
+// listProgress is how far the list can say a show has been watched: the end of
+// the unbroken run of episodes watched in this round, counting what the list
+// already knows about as watched.
+func listProgress(ctx context.Context, app *App, media anilist.Media, round, through int) (int, error) {
+	st, err := app.Store(ctx)
+	if err != nil {
+		return 0, err
+	}
+	eps, err := st.ShowProgress(ctx, media.ID)
+	if err != nil {
+		return 0, err
+	}
+	watched := map[int]bool{}
+	for _, p := range eps {
+		if p.Completed {
+			watched[int(p.Episode)] = true
+		}
+	}
+	return tracker.WatchedRun(watched, through, media.Episodes), nil
+}
+
+// episodeCount reads as "9 episodes watched", for notes about the list.
+func episodeCount(n int) string {
+	if n == 1 {
+		return "1 episode watched"
+	}
+	return fmt.Sprintf("%d episodes watched", n)
+}
+
+func upperFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 func newMarkCmd(app *App) *cobra.Command {

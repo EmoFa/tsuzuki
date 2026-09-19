@@ -94,6 +94,11 @@ as watched, and one you're 12 episodes into shows the first 12, so a show you
 started elsewhere continues from the right place here. Those come from your list,
 so only what you actually play here turns up under **Continue watching**.
 
+Marking episodes yourself (<kbd>w</kbd>, or `tsuzuki mark`) works the same way round: a list
+holds one number, so it follows the marks only as far as an unbroken run from episode 1
+reaches. Marking episode 12 with 10 and 11 still unwatched ticks episode 12 alone and says
+your list didn't move; unmarking an episode pulls the list back to just before it.
+
 ### Keys
 
 | Where | Key | Action |
@@ -110,7 +115,7 @@ so only what you actually play here turns up under **Continue watching**.
 | Show details | <kbd>Enter</kbd> | Play the selected episode |
 | | <kbd>c</kbd> | Continue from the next unwatched episode |
 | | <kbd>#</kbd> | Jump to an episode number |
-| | <kbd>w</kbd> / <kbd>W</kbd> | Mark the episode watched (toggle) / everything up to it |
+| | <kbd>w</kbd> / <kbd>W</kbd> | Mark the episode watched (toggle) / everything up to it, list in step |
 | | <kbd>m</kbd> | Switch between sub and dub |
 | | <kbd>l</kbd> | Change the list status |
 | | <kbd>s</kbd> | Subtitle languages for this show |
@@ -142,7 +147,7 @@ tsuzuki history                    # recently watched
 tsuzuki list watching              # your list (watching, planning, completed, ...)
 tsuzuki rate 154587 9              # score a show from 1 to 10
 tsuzuki rewatch 154587             # start again from episode 1, keeping history
-tsuzuki mark 1735 57-71            # mark episodes watched (--unwatched to undo)
+tsuzuki mark 1735 57-71            # mark episodes watched (--unwatched puts the list back)
 tsuzuki login | logout | whoami | sync
 tsuzuki config init | edit | check | path
 tsuzuki doctor [--streams]         # check dependencies, services and providers

@@ -481,11 +481,7 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 			return d, d.jumpInput.Focus()
 		case key.Matches(msg, keyWatched) && len(d.numbers) > 0:
 			n := d.numbers[d.list.cursor]
-			watched := true
-			if p, ok := d.progress[n]; ok && p.Completed {
-				watched = false
-			}
-			return d, d.setWatched(n, n, watched)
+			return d, d.setWatched(n, n, !d.watched(n))
 		case key.Matches(msg, keyThrough) && len(d.numbers) > 0:
 			return d, d.setWatched(d.numbers[0], d.numbers[d.list.cursor], true)
 		case key.Matches(msg, keyRewatch):
@@ -554,23 +550,19 @@ func (d *detailsScreen) setNumbers() {
 	d.list.setLen(len(nums))
 }
 
-// listWatchedThrough is how far the user's list says they've watched: its
-// progress, or the whole show when the list calls it completed. Episodes
+// listWatchedThrough is how far the user's list says they've watched. Episodes
 // watched elsewhere show as watched here without inventing any history.
 func (d *detailsScreen) listWatchedThrough() float64 {
-	if d.entry == nil {
-		return 0
+	return float64(tracker.ListThrough(d.entry, d.media.Episodes, d.round))
+}
+
+// watched reports whether an episode shows as watched in this round, played
+// here or according to the list, which is what w toggles.
+func (d *detailsScreen) watched(n float64) bool {
+	if p, ok := d.progress[n]; ok && p.Completed {
+		return true
 	}
-	// During a rewatch only a rewatching entry describes this round; anything
-	// else on the list belongs to the watch before it.
-	if d.round > 1 && d.entry.Status != tracker.Repeating {
-		return 0
-	}
-	through := float64(d.entry.Progress)
-	if d.entry.Status == tracker.Completed && float64(d.media.Episodes) > through {
-		through = float64(d.media.Episodes)
-	}
-	return through
+	return n <= d.listWatchedThrough()
 }
 
 // started reports whether the show has been begun at all, here or on the
