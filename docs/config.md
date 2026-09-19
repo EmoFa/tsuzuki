@@ -36,7 +36,7 @@ Each directory can also be moved with `TSUZUKI_CONFIG_DIR`, `TSUZUKI_DATA_DIR` o
 | `general.autoplay_next` | `true` | Start the next episode when one plays to the end. Stopping mpv yourself never autoplays. |
 | `general.watched_threshold` | `0.85` | Fraction of an episode (greater than 0, at most 1) after which it counts as watched: saved as completed in your history, and sent to your list. |
 | `general.resume_rewind_seconds` | `5` | When resuming, start this many seconds before where you stopped. |
-| `general.check_updates` | `true` | Check GitHub at most once a day for a newer release. When there is one, the UI shows a notice once, with the command to upgrade for how tsuzuki was installed; `tsuzuki version` and `tsuzuki doctor` mention it too. Nothing is downloaded or installed automatically. A build from source isn't a release, so it's never reported as out of date; it's shown as a dev build alongside the latest release. |
+| `general.check_updates` | `true` | Check GitHub at most once a day for a newer release. When there is one, the UI shows a notice once, with the command to upgrade for how tsuzuki was installed; `tsuzuki version` and `tsuzuki doctor` mention it too. Nothing is downloaded or installed automatically, and a build from source is shown as a dev build rather than compared with releases. |
 
 ## `[providers]`
 
@@ -69,7 +69,7 @@ providers need (Anikoto), and getting past Cloudflare or DDoS-Guard bot checks.
 
 | Key | Default | Description |
 |---|---|---|
-| `tracking.backend` | `"anilist"` | `"anilist"`: while you're logged in (`tsuzuki login`), your list mirrors AniList. Watched episodes and status changes are sent straight away, and queued to retry when AniList can't be reached. A show's episodes also read as watched here from your list's progress (a Completed show counts as fully watched), which is shown from the list itself rather than recorded as watch history. Marking episodes by hand keeps the two in step: your list moves to the end of the unbroken run of watched episodes, and unmarking one pulls it back to just before it. Before you log in, progress is only kept locally. `"local"`: nothing is ever sent to AniList. |
+| `tracking.backend` | `"anilist"` | `"anilist"`: while you're logged in (`tsuzuki login`), your list mirrors AniList. Watched episodes and status changes are sent straight away, and queued to retry when AniList can't be reached. A show's episodes also read as watched here from your list's progress (a Completed show counts as fully watched), which is shown from the list itself rather than recorded as watch history. Marks made by hand move the list in step, as far as an unbroken run from the first episode reaches. Before you log in, progress is only kept locally. `"local"`: nothing is ever sent to AniList. |
 | `tracking.anilist_client_id` | `0` | AniList API client used by `tsuzuki login`. `0` uses tsuzuki's own client. To use your own, create one at <https://anilist.co/settings/developer> with the redirect URL `http://localhost:47281/callback`. |
 
 ## `[skip]`

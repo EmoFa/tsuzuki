@@ -1,14 +1,16 @@
 # Animepahe
 
-Verified live 2026-09-15. Curd was used as a starting hint only.
+Verified live 2026-09-15. The endpoints were found from
+[Curd](https://github.com/Wraient/curd) and confirmed against the live site.
+Implemented in `internal/provider/animepahe`.
 
 ## Protection
 - `animepahe.pw` (site + API) sits behind a Cloudflare **interactive** Turnstile
   challenge (`403` + `cf-mitigated: challenge`). Headless Chromium does not pass it,
   and a DevTools-controlled window fails verification even when a human ticks the box.
-- What works: a plain Chromium window (no automation) on a dedicated profile. The user
-  ticks the box once and closes the window. Reopening that profile headless via CDP
-  yields the `cf_clearance` cookies.
+- What works: a plain Chromium window (no automation) on a dedicated profile, where a
+  person ticks the box once and closes the window. Reopening that profile headless via
+  CDP yields the `cf_clearance` cookies.
 - Those cookies + the **exact** browser User-Agent work from Go's `net/http` (HTTP/2).
   They do *not* work from curl (different TLS fingerprint).
 - `kwik.cx` embeds need `Referer: https://animepahe.pw/` but no cookies.

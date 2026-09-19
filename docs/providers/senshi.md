@@ -1,8 +1,9 @@
 # Senshi
 
-Verified live 2026-09-15 on **senshi.to** (senshi.live expired). Curd's endpoints for
-senshi.live were a starting hint; request shapes, headers and decryption below come from
-the live web client and its network traffic.
+Verified live 2026-09-15 on **senshi.to** (senshi.live expired). Endpoint names were taken
+from [Curd](https://github.com/Wraient/curd)'s senshi.live support; the request shapes,
+headers and decryption below come from the live web client and its network traffic.
+Implemented in `internal/provider/senshi`.
 
 ## Protection
 - No bot challenge on the site or API. The media hosts (`s.vidcloud.se`, `*.bcdn2.se`,
@@ -35,4 +36,5 @@ the live web client and its network traffic.
   treated as unavailable in that mode.
 - ASS subtitles reference custom fonts (`font[]`) that aren't loaded yet; mpv falls back
   to its default font.
-- Filler/recap flags are mapped onto episodes. Intro/outro times are not used yet (Phase 8).
+- Filler and recap flags, and the intro/outro times, are mapped onto episodes and used for
+  skipping.

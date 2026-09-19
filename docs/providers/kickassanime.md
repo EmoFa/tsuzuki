@@ -5,7 +5,7 @@ written). Added 2026-09-18. Implemented in `internal/provider/kickassanime`.
 
 Everything comes from its JSON API over plain HTTPS. No browser, no challenge so far.
 
-## Requests
+## Endpoints
 
 | Step | Request |
 |---|---|
@@ -19,19 +19,19 @@ Everything comes from its JSON API over plain HTTPS. No browser, no challenge so
 - **Audio.** One manifest holds every language, tagged (`jpn`, `eng`, `spa`, …), so the stream sets
   `AudioLang` and mpv picks the track. The proxy keeps only that rendition
   (`hls.KeepAudioLanguage`): a player otherwise opens all 16 audio playlists before it starts, which
-  took about 50 seconds here.
+  took about 50 seconds in testing.
 - **Quality.** The master playlist offers 360p, 720p and 1080p, filtered by the proxy.
 - **Headers.** The manifests, segments and subtitles all need `Referer: https://krussdomi.com/` and
   `Origin: https://krussdomi.com`, and return 403 without them, so streams go through the proxy.
 - **Segments** are MPEG-TS named `.jpg`, served from rotating hosts (`st1.*.xyz`). They are not
   wrapped in a fake image header, unlike Anikoto's.
 - **Subtitles.** Up to a dozen `.vtt` tracks with language codes. Their server is slow on the first
-  request for a file (about 8 seconds) and fast afterwards, which is why the session warms them in
-  parallel and attaches all but the preferred one after playback starts.
+  request for a file (about 8 seconds) and fast afterwards, so the session fetches them in parallel
+  and attaches all but the preferred one after playback starts.
 - **No IDs.** The API exposes no MAL or AniList ID, so `internal/mapping` matches on title, year and
   type. `type` is mapped to the shared labels ("tv" → TV).
 
-## Notes
+## Quirks
 
 - The `BirdStream` server serves DASH; only `source=vidstream` (HLS) is used.
 - Episode IDs are `ep-{episode_string}-{slug}`, the form the servers endpoint expects.

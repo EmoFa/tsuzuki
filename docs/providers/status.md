@@ -8,9 +8,9 @@
 | Senshi | 2026-09-15 | Working on **senshi.to** (senshi.live expired). Encrypted playlists, played via the stream proxy. See [senshi.md](senshi.md). |
 
 AllAnime was dropped on 2026-09-18: its episode sources have answered `AA_CRYPTO_MISSING` since
-the provider was written, so it only delayed every fallback, and the site isn't expected to return
-until late 2028. Search and episode listing still worked, so the removed implementation is in the
-git history (`internal/provider/allanime`, up to v0.2.0) if it comes back.
+the provider was written, so it only delayed every fallback, and the site isn't expected back until
+late 2028. Search and episode listing still worked, so the implementation remains in the git
+history (`internal/provider/allanime`, up to v0.2.0) if the site returns.
 
 AniNeko was dropped on 2026-09-15: the site has been broken (database errors on every page)
 and directories such as everythingmoe.com have delisted it.
@@ -29,8 +29,9 @@ and directories such as everythingmoe.com have delisted it.
 
 ## Provider research, 2026-09-18
 
-Looking for a replacement for AllAnime, from [everythingmoe.com](https://everythingmoe.com)'s list.
-Chose **KickAssAnime** (see above). The others, in case they're worth another look:
+Candidates for replacing AllAnime, from [everythingmoe.com](https://everythingmoe.com)'s list.
+KickAssAnime was the one implemented; the rest are recorded here so the next look starts
+informed.
 
 | Site | State when checked |
 |---|---|
@@ -38,5 +39,5 @@ Chose **KickAssAnime** (see above). The others, in case they're worth another lo
 | AniZone (`anizone.to`) | Laravel + Livewire: the pages carry no results or links, so search, episodes and streams all need Livewire calls with a CSRF token, or a browser. Workable but brittle. |
 | UniqueStream (`anime.uniquestream.net`) | A Crunchyroll mirror with a documented FastAPI (`/api/v1/openapi.json`), but it serves Widevine/FairPlay DRM, which mpv can't play. |
 | anime.nexus | TanStack Start app; `/api/*` answers "Only HTML requests are supported here", so there's no usable JSON surface. |
-| Miruro (`miruro.tv`) | An aggregator that scrapes other sites, behind a Cloudflare challenge. Two layers of someone else's scraping to break. |
+| Miruro (`miruro.tv`) | An aggregator that scrapes other sites, behind a Cloudflare challenge, so it adds a second layer of scraping to keep working. |
 | AnimeOnsen | `api.animeonsen.xyz` returns 403 without registered client credentials. |

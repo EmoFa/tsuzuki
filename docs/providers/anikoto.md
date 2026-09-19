@@ -1,6 +1,7 @@
 # Anikoto
 
 Verified live 2026-09-15 on **anikototv.to**. First in the default provider order.
+Implemented in `internal/provider/anikoto`.
 
 ## Protection
 - Site and AJAX endpoints sit behind Cloudflare but served no challenge when checked.
@@ -31,4 +32,5 @@ Verified live 2026-09-15 on **anikototv.to**. First in the default provider orde
 - MAL IDs are on every episode (`data-mal`), used for mapping. No AniList IDs.
 - Subtitles are ordered English → other languages → machine-translated "(AI)" tracks, since
   players select the first.
-- Intro/outro times are available (embed `skip_data` and getSources) but not used yet (Phase 8).
+- Intro and outro times come from the embed's `skip_data` and from getSources, and are used
+  for skipping.
