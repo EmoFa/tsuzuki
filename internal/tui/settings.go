@@ -70,9 +70,14 @@ func (s *settingsScreen) build() {
 	}
 
 	version := s.svc.Settings().Version
-	if u := s.update; u != nil && u.Available {
+	switch u := s.update; {
+	case u == nil || u.Latest == "":
+	case u.Available:
 		version += " · " + styleWarn.Render(u.Latest+" available") + " · " + u.Command
-	} else if u != nil && u.Latest != "" {
+	case u.Dev:
+		// A build from source isn't a release, so it's neither behind nor current.
+		version += " · dev build · latest release " + u.Latest
+	default:
 		version += " · up to date"
 	}
 

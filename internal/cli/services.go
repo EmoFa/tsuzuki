@@ -337,12 +337,13 @@ func (a *App) subtitlePrefs() domain.SubtitlePrefs {
 type UpdateStatus struct {
 	Current, Latest string
 	Available       bool
+	Dev             bool   // built from source, so releases say nothing about it
 	Command         string // how to upgrade this installation
 }
 
 // CheckUpdate compares this build with the latest release. cache may be nil.
 func (a *App) CheckUpdate(ctx context.Context, client *httpx.Client, cache update.Cache) (UpdateStatus, error) {
-	s := UpdateStatus{Current: buildinfo.Version}
+	s := UpdateStatus{Current: buildinfo.Version, Dev: !update.IsRelease(buildinfo.Version)}
 	r, err := (&update.Checker{Client: client, Cache: cache}).Latest(ctx)
 	if err != nil {
 		return s, err

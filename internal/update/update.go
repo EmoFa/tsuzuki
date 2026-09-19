@@ -100,6 +100,13 @@ func Newer(current, latest string) bool {
 	return false
 }
 
+// IsRelease reports whether v is a released version rather than a build from
+// source, which carries a "-dirty" or "-<n>-g<commit>" suffix.
+func IsRelease(v string) bool {
+	_, ok := parse(v)
+	return ok
+}
+
 // parse reads "1.2.3" or "v1.2.3"; anything with a suffix ("-rc1", "-next",
 // "-dirty") or not three numbers isn't a release.
 func parse(v string) ([3]int, bool) {

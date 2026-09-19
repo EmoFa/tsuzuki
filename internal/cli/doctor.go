@@ -244,6 +244,8 @@ func serviceChecks(ctx context.Context, app *App, timeout time.Duration) []check
 				return "", err
 			case st.Available:
 				return "", &updateAvailable{st}
+			case st.Dev:
+				return "dev build (latest release " + st.Latest + ")", nil
 			}
 			return "up to date (" + st.Latest + ")", nil
 		}),

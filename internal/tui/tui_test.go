@@ -559,6 +559,32 @@ func TestHelpOverlayFitsTheWindow(t *testing.T) {
 	}
 }
 
+// A build from source is neither behind a release nor up to date with one.
+func TestSettingsVersionLine(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		u      Update
+		want   string
+		unwant string
+	}{
+		{"dev build", Update{Current: "v0.2.0-9-gc5331a3-dirty", Latest: "0.3.0", Dev: true},
+			"dev build · latest release 0.3.0", "up to date"},
+		{"release", Update{Current: "0.3.0", Latest: "0.3.0"}, "up to date", "dev build"},
+		{"behind", Update{Current: "0.2.0", Latest: "0.3.0", Available: true, Command: "brew upgrade tsuzuki"},
+			"0.3.0 available", "up to date"},
+	} {
+		s := newSettings(context.Background(), &fakeServices{})
+		s.Update(settingsUpdateMsg{u: tc.u})
+		view := plain(s.View(100, 40))
+		if !strings.Contains(view, tc.want) {
+			t.Errorf("%s: version line missing %q:\n%s", tc.name, tc.want, view)
+		}
+		if strings.Contains(view, tc.unwant) {
+			t.Errorf("%s: version line shouldn't say %q:\n%s", tc.name, tc.unwant, view)
+		}
+	}
+}
+
 func TestListWindowKeepsCursorVisible(t *testing.T) {
 	var l list
 	l.setLen(100)

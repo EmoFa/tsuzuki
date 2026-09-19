@@ -198,7 +198,7 @@ func (s *tuiServices) CheckUpdate(ctx context.Context, firstNotice bool) (tui.Up
 		return tui.Update{}, err
 	}
 	st, err := s.app.CheckUpdate(ctx, client, s.store)
-	u := tui.Update{Current: st.Current, Latest: st.Latest, Available: st.Available, Command: st.Command}
+	u := tui.Update{Current: st.Current, Latest: st.Latest, Available: st.Available, Dev: st.Dev, Command: st.Command}
 	if err != nil || !u.Available || !firstNotice {
 		return u, err
 	}

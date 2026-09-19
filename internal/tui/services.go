@@ -75,6 +75,7 @@ type Services interface {
 type Update struct {
 	Current, Latest string
 	Available       bool
+	Dev             bool // built from source: no release to compare with
 	Command         string
 	Notify          bool
 }

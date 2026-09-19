@@ -11,6 +11,22 @@ import (
 	"github.com/EmoFa/tsuzuki/internal/httpx"
 )
 
+func TestIsRelease(t *testing.T) {
+	for v, want := range map[string]bool{
+		"0.3.0":                   true,
+		"v0.3.0":                  true,
+		"v0.3.0-dirty":            false,
+		"v0.2.0-9-gc5331a3-dirty": false,
+		"v0.3.0-1-g756b87c":       false,
+		"dev":                     false,
+		"":                        false,
+	} {
+		if got := IsRelease(v); got != want {
+			t.Errorf("IsRelease(%q) = %v", v, got)
+		}
+	}
+}
+
 func TestNewer(t *testing.T) {
 	for _, tc := range []struct {
 		current, latest string
