@@ -36,7 +36,7 @@ Each directory can also be moved with `TSUZUKI_CONFIG_DIR`, `TSUZUKI_DATA_DIR` o
 | `general.autoplay_next` | `true` | Start the next episode when one plays to the end. Stopping mpv yourself never autoplays. |
 | `general.watched_threshold` | `0.85` | Fraction of an episode (greater than 0, at most 1) after which it counts as watched: saved as completed in your history, and sent to your list. |
 | `general.resume_rewind_seconds` | `5` | When resuming, start this many seconds before where you stopped. |
-| `general.check_updates` | `true` | Check GitHub at most once a day for a newer release. When there is one, the UI shows a notice once, with the command to upgrade for how tsuzuki was installed; `tsuzuki version` and `tsuzuki doctor` mention it too. Nothing is downloaded or installed automatically, and a build from source is shown as a dev build rather than compared with releases. |
+| `general.check_updates` | `true` | Check GitHub at most once a day for a newer release. When there is one, the UI shows a notice once, with the command to upgrade for how tsuzuki was installed; `tsuzuki version` and `tsuzuki doctor` mention it too. Nothing is downloaded or installed automatically: `tsuzuki upgrade` does that, for binaries installed by hand. A build from source is shown as a dev build rather than compared with releases. |
 
 ## `[providers]`
 

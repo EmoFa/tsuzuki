@@ -49,26 +49,36 @@ func TestNewer(t *testing.T) {
 	}
 }
 
-func TestUpgradeCommand(t *testing.T) {
+func TestDetectAndUpgradeCommand(t *testing.T) {
 	env := map[string]string{"HOME": "/home/u", "GOPATH": "/work/go", "USERPROFILE": `C:\Users\u`}
 	getenv := func(k string) string { return env[k] }
 	for _, tc := range []struct {
 		exe, goos string
 		arch      bool
+		kind      InstallKind
 		want      string
 	}{
-		{"/opt/homebrew/Caskroom/tsuzuki/0.1.0/tsuzuki", "darwin", false, "brew upgrade tsuzuki"},
-		{"/home/linuxbrew/.linuxbrew/Caskroom/tsuzuki/0.1.0/tsuzuki", "linux", false, "brew upgrade tsuzuki"},
-		{`C:\Users\u\AppData\Local\Microsoft\WinGet\Packages\EmoFa.tsuzuki_x\tsuzuki.exe`, "windows", false, "winget upgrade EmoFa.tsuzuki"},
-		{"/home/u/go/bin/tsuzuki", "linux", false, "go install github.com/EmoFa/tsuzuki/cmd/tsuzuki@latest"},
-		{"/work/go/bin/tsuzuki", "linux", false, "go install github.com/EmoFa/tsuzuki/cmd/tsuzuki@latest"},
-		{"/usr/bin/tsuzuki", "linux", true, "update tsuzuki-bin with your AUR helper, e.g. yay -Syu"},
-		{"/usr/bin/tsuzuki", "linux", false, "update it with your package manager"},
-		{`C:\Users\u\Downloads\tsuzuki.exe`, "windows", false, "download it from " + ReleasesURL},
+		{"/opt/homebrew/Caskroom/tsuzuki/0.1.0/tsuzuki", "darwin", false, KindHomebrew, "brew upgrade tsuzuki"},
+		{"/home/linuxbrew/.linuxbrew/Caskroom/tsuzuki/0.1.0/tsuzuki", "linux", false, KindHomebrew, "brew upgrade tsuzuki"},
+		{`C:\Users\u\AppData\Local\Microsoft\WinGet\Packages\EmoFa.tsuzuki_x\tsuzuki.exe`, "windows", false, KindWinget, "winget upgrade EmoFa.tsuzuki"},
+		{"/home/u/go/bin/tsuzuki", "linux", false, KindGo, "go install github.com/EmoFa/tsuzuki/cmd/tsuzuki@latest"},
+		{"/work/go/bin/tsuzuki", "linux", false, KindGo, "go install github.com/EmoFa/tsuzuki/cmd/tsuzuki@latest"},
+		{"/usr/bin/tsuzuki", "linux", true, KindSystemArch, "update tsuzuki-bin with your AUR helper, e.g. yay -Syu"},
+		{"/usr/bin/tsuzuki", "linux", false, KindSystem, "update it with your package manager"},
+		{`C:\Users\u\Downloads\tsuzuki.exe`, "windows", false, KindManual, "tsuzuki upgrade"},
+		{"/home/u/apps/tsuzuki", "linux", false, KindManual, "tsuzuki upgrade"},
 	} {
 		exists := func(string) bool { return tc.arch }
-		if got := upgradeCommand(tc.exe, tc.goos, getenv, exists); got != tc.want {
+		in := detect(tc.exe, tc.goos, getenv, exists)
+		if in.Kind != tc.kind {
+			t.Errorf("%s: kind %v, want %v", tc.exe, in.Kind, tc.kind)
+		}
+		if got := in.Command(); got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.exe, got, tc.want)
+		}
+		// Only a binary nothing else manages may be replaced in place.
+		if got := in.SelfUpgrades(); got != (tc.kind == KindManual) {
+			t.Errorf("%s: SelfUpgrades = %v", tc.exe, got)
 		}
 	}
 }

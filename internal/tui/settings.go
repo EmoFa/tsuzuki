@@ -31,12 +31,14 @@ func syncCmd(ctx context.Context, svc Services, silent bool) tea.Cmd {
 // settingsScreen shows the effective configuration and the AniList account.
 // Editing happens in the config file.
 type settingsScreen struct {
-	ctx     context.Context
-	svc     Services
-	lines   []string
-	offset  int
-	working string // "login" or "sync" while running
-	update  *Update
+	ctx       context.Context
+	svc       Services
+	lines     []string
+	offset    int
+	working   string // "login" or "sync" while running
+	update    *Update
+	upgrading bool
+	upgraded  string // the version an upgrade put in place, waiting on a restart
 }
 
 func newSettings(ctx context.Context, svc Services) *settingsScreen {
@@ -71,7 +73,13 @@ func (s *settingsScreen) build() {
 
 	version := s.svc.Settings().Version
 	switch u := s.update; {
+	case s.upgrading:
+		version += " · " + styleWarn.Render("upgrading…")
+	case s.upgraded != "":
+		version += " · " + styleGood.Render(s.upgraded+" installed") + " · restart to use it"
 	case u == nil || u.Latest == "":
+	case u.Available && u.SelfUpgrade:
+		version += " · " + styleWarn.Render(u.Latest+" available") + " · " + styleKey.Render("u") + " to upgrade"
 	case u.Available:
 		version += " · " + styleWarn.Render(u.Latest+" available") + " · " + u.Command
 	case u.Dev:
@@ -132,9 +140,16 @@ func valueOr(v, fallback string) string {
 }
 
 var (
-	keyLogin = key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "log in to AniList"))
-	keySync  = key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "sync list"))
+	keyLogin   = key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "log in to AniList"))
+	keySync    = key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "sync list"))
+	keyUpgrade = key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "upgrade tsuzuki"))
 )
+
+type settingsUpgradedMsg struct {
+	version string
+	note    string
+	err     error
+}
 
 type settingsUpdateMsg struct{ u Update }
 
@@ -153,10 +168,20 @@ func (s *settingsScreen) Title() string    { return "Settings" }
 func (s *settingsScreen) Refresh() tea.Cmd { s.build(); return nil }
 
 func (s *settingsScreen) Help() []key.Binding {
+	keys := []key.Binding{keyLogin}
 	if s.svc.Account().LoggedIn {
-		return []key.Binding{keySync, keyLogin}
+		keys = []key.Binding{keySync, keyLogin}
 	}
-	return []key.Binding{keyLogin}
+	if s.canUpgrade() {
+		keys = append(keys, keyUpgrade)
+	}
+	return keys
+}
+
+// canUpgrade reports whether tsuzuki can replace itself with a newer release.
+// One upgrade is enough until it's restarted.
+func (s *settingsScreen) canUpgrade() bool {
+	return s.update != nil && s.update.Available && s.update.SelfUpgrade && !s.upgrading && s.upgraded == ""
 }
 
 func (s *settingsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
@@ -174,8 +199,26 @@ func (s *settingsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 	case settingsUpdateMsg:
 		s.update = &msg.u
 		s.build()
+	case settingsUpgradedMsg:
+		s.upgrading = false
+		if msg.err == nil {
+			s.upgraded = msg.version
+		}
+		s.build()
+		if msg.err != nil {
+			return s, toast("Upgrade failed: "+firstLine(msg.err.Error()), true)
+		}
+		return s, toast(msg.note, false)
 	case tea.KeyPressMsg:
 		switch {
+		case key.Matches(msg, keyUpgrade) && s.canUpgrade():
+			s.upgrading = true
+			s.build()
+			ctx, svc, latest := s.ctx, s.svc, s.update.Latest
+			return s, tea.Batch(toast("Downloading tsuzuki "+latest+"…", false), func() tea.Msg {
+				note, err := svc.Upgrade(ctx)
+				return settingsUpgradedMsg{latest, note, err}
+			})
 		case key.Matches(msg, keyLogin) && s.working == "":
 			s.working = "login"
 			ctx, svc := s.ctx, s.svc

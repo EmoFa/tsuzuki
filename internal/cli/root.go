@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/EmoFa/tsuzuki/internal/store"
 	"github.com/EmoFa/tsuzuki/internal/streamproxy"
 	"github.com/EmoFa/tsuzuki/internal/tracker"
+	"github.com/EmoFa/tsuzuki/internal/update"
 )
 
 // skipConfigAnnotation marks commands that must work even when the config file
@@ -108,6 +110,11 @@ func NewRootCmd() (*cobra.Command, *App) {
 			}
 			app.closeLogs = closeLogs
 			slog.Debug("starting", "version", buildinfo.Version, "command", cmd.CommandPath())
+			// An upgrade on Windows leaves the binary it displaced behind,
+			// since it can't be deleted while it's running.
+			if exe, err := os.Executable(); err == nil {
+				update.CleanupOld(exe)
+			}
 
 			if cmd.Annotations[skipConfigAnnotation] == "" {
 				cfg, _, err := config.Load(app.ConfigPath)
@@ -128,6 +135,7 @@ func NewRootCmd() (*cobra.Command, *App) {
 
 	root.AddCommand(
 		newVersionCmd(app),
+		newUpgradeCmd(app),
 		newConfigCmd(app),
 		newSearchCmd(app),
 		newDiscoverCmd(app),

@@ -69,6 +69,10 @@ type Services interface {
 	// CheckUpdate looks for a newer release (at most daily). With firstNotice,
 	// Update.Notify is true only the first time a given release is reported.
 	CheckUpdate(ctx context.Context, firstNotice bool) (Update, error)
+
+	// Upgrade replaces the running binary with the latest release, reporting
+	// what happened. Only offered when Update.SelfUpgrade is set.
+	Upgrade(ctx context.Context) (string, error)
 }
 
 // Update describes a newer release, if any.
@@ -76,6 +80,7 @@ type Update struct {
 	Current, Latest string
 	Available       bool
 	Dev             bool // built from source: no release to compare with
+	SelfUpgrade     bool // tsuzuki can replace this binary itself
 	Command         string
 	Notify          bool
 }

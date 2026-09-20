@@ -50,7 +50,10 @@ Each installs mpv too, and updates with your package manager (`brew upgrade`,
 so `tsuzuki` is on your `PATH`.
 
 Archives, `.deb` and `.rpm` packages are also on the
-[releases page](https://github.com/EmoFa/tsuzuki/releases).
+[releases page](https://github.com/EmoFa/tsuzuki/releases). A binary unpacked from an
+archive replaces itself with `tsuzuki upgrade`: it downloads the latest release, checks
+it against the release's checksums, and swaps it in. Installations a package manager
+owns are left to that package manager, and tsuzuki says which command to run.
 
 **With Go** (1.27 or newer):
 
@@ -145,6 +148,7 @@ tsuzuki mark 1735 57-71            # mark episodes watched (--unwatched puts the
 tsuzuki login | logout | whoami | sync
 tsuzuki config init | edit | check | path
 tsuzuki doctor [--streams]         # check dependencies, services and providers
+tsuzuki upgrade [--check]          # install the latest release (hand-installed binaries)
 ```
 
 ## Configuration

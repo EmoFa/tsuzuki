@@ -152,7 +152,11 @@ func (m *Model) Init() tea.Cmd {
 		if err != nil || !u.Notify {
 			return nil
 		}
-		return NoticeMsg{Text: fmt.Sprintf("tsuzuki %s is available (you have %s). To upgrade: %s", u.Latest, u.Current, u.Command)}
+		how := "To upgrade: " + u.Command
+		if u.SelfUpgrade {
+			how = "To upgrade: press u in settings, or run " + u.Command
+		}
+		return NoticeMsg{Text: fmt.Sprintf("tsuzuki %s is available (you have %s). %s", u.Latest, u.Current, how)}
 	})
 	return tea.Batch(cmds...)
 }

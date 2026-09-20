@@ -7,9 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -123,59 +120,4 @@ func parse(v string) ([3]int, bool) {
 		out[i] = n
 	}
 	return out, true
-}
-
-// UpgradeCommand says how to upgrade a tsuzuki installed at exe.
-func UpgradeCommand(exe string) string {
-	return upgradeCommand(exe, runtime.GOOS, os.Getenv, fileExists)
-}
-
-func upgradeCommand(exe, goos string, getenv func(string) string, exists func(string) bool) string {
-	slash := strings.ReplaceAll(exe, `\`, "/") // Windows paths, whatever OS runs this
-	lower := strings.ToLower(slash)
-	switch {
-	case strings.Contains(lower, "/caskroom/") || strings.Contains(lower, "/cellar/") ||
-		strings.Contains(lower, "/homebrew/") || strings.Contains(lower, "/.linuxbrew/") ||
-		(getenv("HOMEBREW_PREFIX") != "" && strings.HasPrefix(slash, filepath.ToSlash(getenv("HOMEBREW_PREFIX"))+"/")):
-		return "brew upgrade tsuzuki"
-	case goos == "windows" && strings.Contains(lower, "/winget/"):
-		return "winget upgrade EmoFa.tsuzuki"
-	case isGoBin(slash, getenv):
-		return "go install github.com/EmoFa/tsuzuki/cmd/tsuzuki@latest"
-	case goos == "linux" && strings.HasPrefix(slash, "/usr/bin/"):
-		if exists("/etc/arch-release") {
-			return "update tsuzuki-bin with your AUR helper, e.g. yay -Syu"
-		}
-		return "update it with your package manager"
-	}
-	return "download it from " + ReleasesURL
-}
-
-func isGoBin(exe string, getenv func(string) string) bool {
-	var dirs []string
-	if d := getenv("GOBIN"); d != "" {
-		dirs = append(dirs, d)
-	}
-	for _, p := range filepath.SplitList(getenv("GOPATH")) {
-		if p != "" {
-			dirs = append(dirs, filepath.Join(p, "bin"))
-		}
-	}
-	if home := getenv("HOME"); home != "" {
-		dirs = append(dirs, filepath.Join(home, "go", "bin"))
-	}
-	if profile := getenv("USERPROFILE"); profile != "" {
-		dirs = append(dirs, filepath.Join(profile, "go", "bin"))
-	}
-	for _, d := range dirs {
-		if strings.EqualFold(filepath.ToSlash(filepath.Dir(filepath.FromSlash(exe))), filepath.ToSlash(d)) {
-			return true
-		}
-	}
-	return false
-}
-
-func fileExists(p string) bool {
-	_, err := os.Stat(p)
-	return err == nil
 }

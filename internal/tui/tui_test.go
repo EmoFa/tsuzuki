@@ -41,6 +41,9 @@ type fakeServices struct {
 	browsed  []anilist.BrowseQuery
 	scores   map[int]float64
 
+	upgraded   bool
+	upgradeErr error
+
 	rounds        int
 	beforeThrough int
 	watchedBefore map[float64]bool
@@ -304,6 +307,16 @@ func (f *fakeServices) Prequels(_ context.Context, id int) ([]anilist.Media, err
 
 func (f *fakeServices) CheckUpdate(context.Context, bool) (Update, error) {
 	return Update{Current: "0.1.0", Latest: "0.1.0"}, nil
+}
+
+func (f *fakeServices) Upgrade(context.Context) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.upgraded = true
+	if f.upgradeErr != nil {
+		return "", f.upgradeErr
+	}
+	return "Upgraded to 0.4.0. Restart tsuzuki to use it.", nil
 }
 
 func (f *fakeServices) Settings() Settings {
@@ -570,6 +583,8 @@ func TestSettingsVersionLine(t *testing.T) {
 		{"dev build", Update{Current: "v0.2.0-9-gc5331a3-dirty", Latest: "0.3.0", Dev: true},
 			"dev build · latest release 0.3.0", "up to date"},
 		{"release", Update{Current: "0.3.0", Latest: "0.3.0"}, "up to date", "dev build"},
+		{"self-upgradable", Update{Current: "0.2.0", Latest: "0.3.0", Available: true, SelfUpgrade: true,
+			Command: "tsuzuki upgrade"}, "u to upgrade", "up to date"},
 		{"behind", Update{Current: "0.2.0", Latest: "0.3.0", Available: true, Command: "brew upgrade tsuzuki"},
 			"0.3.0 available", "up to date"},
 	} {
@@ -582,6 +597,63 @@ func TestSettingsVersionLine(t *testing.T) {
 		if strings.Contains(view, tc.unwant) {
 			t.Errorf("%s: version line shouldn't say %q:\n%s", tc.name, tc.unwant, view)
 		}
+	}
+}
+
+// u upgrades in place, but only where a package manager isn't in charge.
+func TestSettingsUpgradeKey(t *testing.T) {
+	available := Update{Current: "0.2.0", Latest: "0.3.0", Available: true, SelfUpgrade: true, Command: "tsuzuki upgrade"}
+
+	svc := &fakeServices{}
+	s := newSettings(context.Background(), svc)
+	s.Update(settingsUpdateMsg{u: available})
+	_, cmd := s.Update(press("u"))
+	if cmd == nil {
+		t.Fatal("u did nothing")
+	}
+	var note string
+	for _, msg := range runBatch(cmd) {
+		switch msg := msg.(type) {
+		case settingsUpgradedMsg:
+			s.Update(msg)
+			note = msg.note
+		}
+	}
+	if !svc.upgraded {
+		t.Error("u didn't upgrade")
+	}
+	if !strings.Contains(note, "Restart tsuzuki") {
+		t.Errorf("note = %q", note)
+	}
+	if s.upgrading {
+		t.Error("still shows as upgrading when done")
+	}
+	// One upgrade is enough until tsuzuki restarts.
+	if view := plain(s.View(100, 40)); !strings.Contains(view, "0.3.0 installed") || !strings.Contains(view, "restart to use it") {
+		t.Errorf("version line after upgrading:\n%s", view)
+	}
+	svc.upgraded = false
+	if _, cmd := s.Update(press("u")); cmd != nil {
+		runBatch(cmd)
+	}
+	if svc.upgraded {
+		t.Error("u upgraded twice without a restart")
+	}
+
+	// A package-managed install only names its command.
+	packaged := available
+	packaged.SelfUpgrade, packaged.Command = false, "brew upgrade tsuzuki"
+	svc = &fakeServices{}
+	s = newSettings(context.Background(), svc)
+	s.Update(settingsUpdateMsg{u: packaged})
+	if _, cmd := s.Update(press("u")); cmd != nil {
+		runBatch(cmd)
+	}
+	if svc.upgraded {
+		t.Error("u upgraded a package-managed install")
+	}
+	if view := plain(s.View(100, 40)); !strings.Contains(view, "brew upgrade tsuzuki") {
+		t.Errorf("view missing the package manager command:\n%s", view)
 	}
 }
 

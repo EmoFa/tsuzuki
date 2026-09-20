@@ -198,7 +198,8 @@ func (s *tuiServices) CheckUpdate(ctx context.Context, firstNotice bool) (tui.Up
 		return tui.Update{}, err
 	}
 	st, err := s.app.CheckUpdate(ctx, client, s.store)
-	u := tui.Update{Current: st.Current, Latest: st.Latest, Available: st.Available, Dev: st.Dev, Command: st.Command}
+	u := tui.Update{Current: st.Current, Latest: st.Latest, Available: st.Available, Dev: st.Dev,
+		SelfUpgrade: st.SelfUpgrade, Command: st.Command}
 	if err != nil || !u.Available || !firstNotice {
 		return u, err
 	}
@@ -210,6 +211,10 @@ func (s *tuiServices) CheckUpdate(ctx context.Context, firstNotice bool) (tui.Up
 		}
 	}
 	return u, nil
+}
+
+func (s *tuiServices) Upgrade(ctx context.Context) (string, error) {
+	return upgradeNote(ctx)
 }
 
 func (s *tuiServices) SetScore(ctx context.Context, mediaID int, score float64) (string, error) {

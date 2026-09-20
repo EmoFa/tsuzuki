@@ -338,7 +338,20 @@ type UpdateStatus struct {
 	Current, Latest string
 	Available       bool
 	Dev             bool   // built from source, so releases say nothing about it
+	SelfUpgrade     bool   // `tsuzuki upgrade` can replace this binary itself
 	Command         string // how to upgrade this installation
+}
+
+// installed describes the running binary, for deciding how to upgrade it.
+func installed() update.Install {
+	exe, err := os.Executable()
+	if err != nil {
+		return update.Install{}
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	return update.Detect(exe)
 }
 
 // CheckUpdate compares this build with the latest release. cache may be nil.
@@ -349,11 +362,9 @@ func (a *App) CheckUpdate(ctx context.Context, client *httpx.Client, cache updat
 		return s, err
 	}
 	s.Latest, s.Available = r.Version, update.Newer(buildinfo.Version, r.Version)
-	if exe, err := os.Executable(); err == nil {
-		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-			exe = resolved
-		}
-		s.Command = update.UpgradeCommand(exe)
+	if in := installed(); in.Exe != "" {
+		s.Command = in.Command()
+		s.SelfUpgrade = in.SelfUpgrades() && !s.Dev
 	}
 	return s, nil
 }
