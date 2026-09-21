@@ -14,8 +14,9 @@ Pushing a version tag runs `.github/workflows/release.yml`, which uses gorelease
 Tags with a suffix, such as `v1.2.0-rc1`, make a GitHub prerelease and skip the
 package managers.
 
-Publishing the release then runs `.github/workflows/packages.yml`, which covers the
-two repositories goreleaser doesn't:
+`.github/workflows/packages.yml` then runs, covering the two repositories goreleaser
+doesn't. It follows the Release workflow rather than the release it publishes, because
+GitHub won't start a workflow from an event the Actions token created:
 
 - **apt**, at <https://emofa.github.io/tsuzuki/apt>. The job rebuilds the repository
   from the `.deb` files of the last five releases, signs it, and deploys it to GitHub
@@ -29,8 +30,9 @@ two repositories goreleaser doesn't:
   release carries a `tsuzuki-<version>-vendor.tar.gz` of the Go dependencies that the
   spec builds from.
 
-`workflow_dispatch` runs it with a throwaway signing key and publishes nothing, which
-is the way to test a change to either.
+`workflow_dispatch` runs it against the latest release: with the dry run left on it
+signs with a throwaway key and publishes nothing, which is the way to test a change to
+either, and with it off it republishes both repositories.
 
 ## Making a release
 

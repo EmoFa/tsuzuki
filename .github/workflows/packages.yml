@@ -3,8 +3,12 @@
 name: Packages
 
 on:
-  release:
-    types: [published]
+  # A release published by the Release workflow uses the Actions token, and
+  # GitHub won't start a workflow from an event that token created — so this
+  # follows the workflow itself rather than the release it publishes.
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -23,6 +27,8 @@ env:
 jobs:
   apt:
     name: apt repository
+    # A failed release has nothing worth publishing.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -81,6 +87,7 @@ jobs:
 
   copr:
     name: Fedora Copr
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     container: fedora:43
     defaults:
@@ -88,6 +95,9 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The tag being released, so the spec matches what it packages.
+          ref: ${{ github.event.workflow_run.head_branch || github.ref }}
 
       - name: Install the build tools
         run: |
@@ -97,7 +107,7 @@ jobs:
       - name: Work out the version
         id: version
         run: |
-          version="${{ github.event.release.tag_name }}"
+          version="${{ github.event.workflow_run.head_branch }}"
           if [ -z "$version" ]; then
             # A manual run packages whatever the latest release is.
             version=$(curl -fsSL https://api.github.com/repos/EmoFa/tsuzuki/releases/latest | jq -r .tag_name)
