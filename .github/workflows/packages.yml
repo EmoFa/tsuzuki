@@ -48,12 +48,18 @@ jobs:
 
       - name: Import the signing key
         id: key
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             # Nothing is published, so a throwaway key proves the build alone.
             gpg --batch --passphrase '' --quick-gen-key 'tsuzuki dry run <dry@run.invalid>' rsa3072 sign never
           else
-            printf '%s' "${{ secrets.APT_GPG_PRIVATE_KEY }}" | gpg --batch --import
+            case "$APT_GPG_PRIVATE_KEY" in
+              *"BEGIN PGP PRIVATE KEY BLOCK"*) ;;
+              *) echo "::error::APT_GPG_PRIVATE_KEY isn't an armoured private key: re-export it with \`gpg --armor --export-secret-keys <fingerprint>\`"; exit 1 ;;
+            esac
+            printf '%s\n' "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
           fi
           echo "id=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')" >> "$GITHUB_OUTPUT"
 
@@ -104,11 +110,15 @@ jobs:
         run: |
           rpmdev-setuptree
           sources=~/rpmbuild/SOURCES
+          # Copr rebuilds the spec from the source RPM, where a --define from
+          # here wouldn't reach it.
+          sed -i "s/^%global tsuzuki_version .*/%global tsuzuki_version $VERSION/" packaging/tsuzuki.spec
+          grep -q "^%global tsuzuki_version $VERSION$" packaging/tsuzuki.spec
           # The release's own tarballs, so what Copr builds is what the spec
           # names. spectool reports success even when a source is missing, so
           # what matters is whether the files are there afterwards; a dry run
           # before the first release with a vendor tarball makes them here.
-          spectool --define "tsuzuki_version $VERSION" -g -R packaging/tsuzuki.spec || true
+          spectool -g -R packaging/tsuzuki.spec || true
           git config --global --add safe.directory "$PWD"
           if [ ! -s "$sources/tsuzuki-$VERSION.tar.gz" ]; then
             echo "::notice::building the source tarball from this checkout"
@@ -120,7 +130,7 @@ jobs:
             tar czf "$sources/tsuzuki-$VERSION-vendor.tar.gz" vendor
             rm -rf vendor
           fi
-          rpmbuild --define "tsuzuki_version $VERSION" -bs packaging/tsuzuki.spec
+          rpmbuild -bs packaging/tsuzuki.spec
           find ~/rpmbuild/SRPMS -name '*.src.rpm'
 
       - name: Send it to Copr

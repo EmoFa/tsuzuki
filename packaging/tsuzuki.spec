@@ -1,7 +1,10 @@
 # Built by Copr from a source RPM the release workflow uploads. Copr builds
 # without network access, so the Go dependencies come from a vendor tarball
 # published alongside each release rather than being fetched here.
-%{!?tsuzuki_version:%{error:define tsuzuki_version, e.g. rpmbuild --define 'tsuzuki_version 0.3.2' -bs packaging/tsuzuki.spec}}
+# The version being packaged. Copr rebuilds this spec inside its own chroot, so
+# it has to be written into the file rather than passed to rpmbuild: the release
+# workflow replaces this line before building the source RPM.
+%global tsuzuki_version 0.0.0
 
 # A static Go binary carries its own debug information and has no debug source
 # to split out, so rpm's automatic debug packages find nothing to package.
