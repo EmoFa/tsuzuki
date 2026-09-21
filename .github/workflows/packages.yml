@@ -77,11 +77,16 @@ jobs:
     name: Fedora Copr
     runs-on: ubuntu-latest
     container: fedora:43
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v5
 
       - name: Install the build tools
-        run: dnf install -y --setopt=install_weak_deps=False rpm-build rpmdevtools copr-cli curl
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            rpm-build rpmdevtools copr-cli curl golang git-core tar
 
       - name: Work out the version
         id: version
@@ -98,16 +103,21 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           rpmdev-setuptree
+          sources=~/rpmbuild/SOURCES
           # The release's own tarballs, so what Copr builds is what the spec
-          # names. A dry run before the first release with a vendor tarball
-          # falls back to making them from this checkout.
-          if ! spectool --define "tsuzuki_version $VERSION" -g -R packaging/tsuzuki.spec; then
-            echo "::notice::building the source tarballs locally"
-            dnf install -y --setopt=install_weak_deps=False golang git-core tar
-            git config --global --add safe.directory "$PWD"
-            git archive --prefix="tsuzuki-$VERSION/" -o ~/rpmbuild/SOURCES/"tsuzuki-$VERSION.tar.gz" HEAD
+          # names. spectool reports success even when a source is missing, so
+          # what matters is whether the files are there afterwards; a dry run
+          # before the first release with a vendor tarball makes them here.
+          spectool --define "tsuzuki_version $VERSION" -g -R packaging/tsuzuki.spec || true
+          git config --global --add safe.directory "$PWD"
+          if [ ! -s "$sources/tsuzuki-$VERSION.tar.gz" ]; then
+            echo "::notice::building the source tarball from this checkout"
+            git archive --prefix="tsuzuki-$VERSION/" -o "$sources/tsuzuki-$VERSION.tar.gz" HEAD
+          fi
+          if [ ! -s "$sources/tsuzuki-$VERSION-vendor.tar.gz" ]; then
+            echo "::notice::building the vendor tarball from this checkout"
             go mod vendor
-            tar czf ~/rpmbuild/SOURCES/"tsuzuki-$VERSION-vendor.tar.gz" vendor
+            tar czf "$sources/tsuzuki-$VERSION-vendor.tar.gz" vendor
             rm -rf vendor
           fi
           rpmbuild --define "tsuzuki_version $VERSION" -bs packaging/tsuzuki.spec
