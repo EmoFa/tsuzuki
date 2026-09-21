@@ -48,6 +48,7 @@ type App struct {
 	tracker   *tracker.Tracker
 	presence  *discord.Presence
 	notices   chan<- string // set while the TUI runs
+	updateURL string        // where to look for releases; empty means GitHub
 	closeLogs func() error
 }
 

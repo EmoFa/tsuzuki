@@ -357,7 +357,7 @@ func installed() update.Install {
 // CheckUpdate compares this build with the latest release. cache may be nil.
 func (a *App) CheckUpdate(ctx context.Context, client *httpx.Client, cache update.Cache) (UpdateStatus, error) {
 	s := UpdateStatus{Current: buildinfo.Version, Dev: !update.IsRelease(buildinfo.Version)}
-	r, err := (&update.Checker{Client: client, Cache: cache}).Latest(ctx)
+	r, err := (&update.Checker{Client: client, Cache: cache, URL: a.updateURL}).Latest(ctx)
 	if err != nil {
 		return s, err
 	}
