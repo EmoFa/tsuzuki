@@ -86,15 +86,15 @@ jobs:
       - name: Install the build tools
         run: |
           dnf install -y --setopt=install_weak_deps=False \
-            rpm-build rpmdevtools copr-cli curl golang git-core tar
+            rpm-build rpmdevtools copr-cli curl jq golang git-core tar
 
       - name: Work out the version
         id: version
         run: |
           version="${{ github.event.release.tag_name }}"
           if [ -z "$version" ]; then
-            version=$(curl -fsSL https://api.github.com/repos/EmoFa/tsuzuki/releases/latest |
-              grep -m1 '"tag_name"' | cut -d'"' -f4)
+            # A manual run packages whatever the latest release is.
+            version=$(curl -fsSL https://api.github.com/repos/EmoFa/tsuzuki/releases/latest | jq -r .tag_name)
           fi
           echo "version=${version#v}" >> "$GITHUB_OUTPUT"
 
