@@ -103,8 +103,14 @@ func TestUpgradeReplacesTheBinary(t *testing.T) {
 	if b, _ := os.ReadFile(in.Exe); string(b) != "new binary" {
 		t.Errorf("binary is %q", b)
 	}
-	if fi, err := os.Stat(in.Exe); err != nil || fi.Mode().Perm() != 0o755 {
-		t.Errorf("mode = %v, %v", fi.Mode().Perm(), err)
+	fi, err := os.Stat(in.Exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Windows has no executable bit: Go maps the read-only attribute onto the
+	// mode, so a writable file always reads as 0666 there.
+	if want := os.FileMode(0o755); runtime.GOOS != "windows" && fi.Mode().Perm() != want {
+		t.Errorf("mode = %v, want %v", fi.Mode().Perm(), want)
 	}
 	if seen == 0 {
 		t.Error("no progress reported")
