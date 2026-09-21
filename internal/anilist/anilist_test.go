@@ -233,8 +233,11 @@ func TestAuthenticatedCalls(t *testing.T) {
 }
 
 func TestNotYetAiredAndPremiereLabel(t *testing.T) {
+	// NotYetAired reads the real clock, so times that must still be ahead of
+	// it come from time.Now(); the labels below are checked against a fixed
+	// clock instead, where the formatting can't drift.
 	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
-	future := now.Add(72 * time.Hour).Unix()
+	future := time.Now().Add(72 * time.Hour).Unix()
 	past := time.Now().Add(-time.Hour).Unix()
 	for _, tc := range []struct {
 		name  string
@@ -244,7 +247,7 @@ func TestNotYetAiredAndPremiereLabel(t *testing.T) {
 	}{
 		{"finished", Media{Status: "FINISHED"}, false, ""},
 		{"airing", Media{Status: "RELEASING", NextAiringEpisode: &AiringEpisode{Episode: 4, AiringAt: future}}, false, ""},
-		{"first episode scheduled", Media{Status: "NOT_YET_RELEASED", NextAiringEpisode: &AiringEpisode{Episode: 1, AiringAt: future}}, true, "Episode 1 airs Sun, Sep 20 at 12:00"},
+		{"first episode scheduled", Media{Status: "NOT_YET_RELEASED", NextAiringEpisode: &AiringEpisode{Episode: 1, AiringAt: future}}, true, ""},
 		{"stale cache after premiere", Media{Status: "NOT_YET_RELEASED", NextAiringEpisode: &AiringEpisode{Episode: 1, AiringAt: past}}, false, ""},
 		{"full start date", Media{Status: "NOT_YET_RELEASED", StartDate: FuzzyDate{2027, 1, 9}}, true, "Starts January 9, 2027"},
 		{"month only", Media{Status: "NOT_YET_RELEASED", StartDate: FuzzyDate{Year: 2026, Month: 10}}, true, "Starts October 2026"},
@@ -260,5 +263,16 @@ func TestNotYetAiredAndPremiereLabel(t *testing.T) {
 				t.Errorf("%s: label = %q, want %q", tc.name, got, tc.label)
 			}
 		}
+	}
+
+	// An airing time is shown in the caller's location, and carries the year
+	// only when it isn't the current one.
+	airs := Media{Status: "NOT_YET_RELEASED", NextAiringEpisode: &AiringEpisode{
+		Episode: 1, AiringAt: time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC).Unix()}}
+	if got := airs.PremiereLabel(now); got != "Episode 1 airs Sun, Sep 20 at 12:00" {
+		t.Errorf("label = %q", got)
+	}
+	if got := airs.PremiereLabel(now.AddDate(-1, 0, 0)); got != "Episode 1 airs Sun, Sep 20, 2026" {
+		t.Errorf("label in another year = %q", got)
 	}
 }

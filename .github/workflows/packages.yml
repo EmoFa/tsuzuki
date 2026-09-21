@@ -1,0 +1,131 @@
+# Publishes tsuzuki to the package repositories that aren't handled by
+# goreleaser: the apt repository on GitHub Pages, and Fedora's Copr.
+name: Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build everything with a throwaway key, publishing nothing"
+        type: boolean
+        default: true
+
+concurrency:
+  group: packages
+  cancel-in-progress: false
+
+env:
+  # How many releases the apt pool keeps, newest first.
+  KEEP_RELEASES: 5
+
+jobs:
+  apt:
+    name: apt repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Collect the packages of recent releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p debs
+          gh release list --limit "$KEEP_RELEASES" --exclude-drafts --exclude-pre-releases \
+            --json tagName --jq '.[].tagName' > tags
+          while read -r tag; do
+            gh release download "$tag" --pattern '*.deb' --dir debs --clobber || true
+          done < tags
+          ls -l debs
+
+      - name: Import the signing key
+        id: key
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            # Nothing is published, so a throwaway key proves the build alone.
+            gpg --batch --passphrase '' --quick-gen-key 'tsuzuki dry run <dry@run.invalid>' rsa3072 sign never
+          else
+            printf '%s' "${{ secrets.APT_GPG_PRIVATE_KEY }}" | gpg --batch --import
+          fi
+          echo "id=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')" >> "$GITHUB_OUTPUT"
+
+      - name: Build the repository
+        env:
+          APT_GPG_KEY_ID: ${{ steps.key.outputs.id }}
+          APT_SITE_URL: https://emofa.github.io/tsuzuki
+        run: packaging/build-apt-repo.sh debs site
+
+      - name: Check it installs
+        run: packaging/test-apt-repo.sh site
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+      - id: deploy
+        if: inputs.dry_run != true
+        uses: actions/deploy-pages@v4
+
+  copr:
+    name: Fedora Copr
+    runs-on: ubuntu-latest
+    container: fedora:43
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the build tools
+        run: dnf install -y --setopt=install_weak_deps=False rpm-build rpmdevtools copr-cli curl
+
+      - name: Work out the version
+        id: version
+        run: |
+          version="${{ github.event.release.tag_name }}"
+          if [ -z "$version" ]; then
+            version=$(curl -fsSL https://api.github.com/repos/EmoFa/tsuzuki/releases/latest |
+              grep -m1 '"tag_name"' | cut -d'"' -f4)
+          fi
+          echo "version=${version#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build the source RPM
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          rpmdev-setuptree
+          # The release's own tarballs, so what Copr builds is what the spec
+          # names. A dry run before the first release with a vendor tarball
+          # falls back to making them from this checkout.
+          if ! spectool --define "tsuzuki_version $VERSION" -g -R packaging/tsuzuki.spec; then
+            echo "::notice::building the source tarballs locally"
+            dnf install -y --setopt=install_weak_deps=False golang git-core tar
+            git config --global --add safe.directory "$PWD"
+            git archive --prefix="tsuzuki-$VERSION/" -o ~/rpmbuild/SOURCES/"tsuzuki-$VERSION.tar.gz" HEAD
+            go mod vendor
+            tar czf ~/rpmbuild/SOURCES/"tsuzuki-$VERSION-vendor.tar.gz" vendor
+            rm -rf vendor
+          fi
+          rpmbuild --define "tsuzuki_version $VERSION" -bs packaging/tsuzuki.spec
+          find ~/rpmbuild/SRPMS -name '*.src.rpm'
+
+      - name: Send it to Copr
+        if: inputs.dry_run != true
+        env:
+          COPR_LOGIN: ${{ secrets.COPR_LOGIN }}
+          COPR_USERNAME: ${{ secrets.COPR_USERNAME }}
+          COPR_TOKEN: ${{ secrets.COPR_TOKEN }}
+        run: |
+          mkdir -p ~/.config
+          cat > ~/.config/copr <<-CONFIG
+          [copr-cli]
+          login = $COPR_LOGIN
+          username = $COPR_USERNAME
+          token = $COPR_TOKEN
+          copr_url = https://copr.fedorainfracloud.org
+          CONFIG
+          copr-cli build emofa/tsuzuki ~/rpmbuild/SRPMS/tsuzuki-${{ steps.version.outputs.version }}-*.src.rpm

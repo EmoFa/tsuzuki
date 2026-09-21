@@ -1,6 +1,6 @@
 module github.com/EmoFa/tsuzuki
 
-go 1.27.1
+go 1.25.0
 
 require (
 	charm.land/bubbles/v2 v2.2.1

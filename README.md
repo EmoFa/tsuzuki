@@ -44,10 +44,20 @@ tsuzuki doesn't host anything: it finds streams on third-party sites and plays t
 |---|---|
 | macOS, Linux ([Homebrew](https://brew.sh)) | `brew install EmoFa/tap/tsuzuki` |
 | Windows | `winget install EmoFa.tsuzuki` |
+| Fedora | `sudo dnf copr enable emofa/tsuzuki && sudo dnf install tsuzuki` |
+
+On Debian, Ubuntu and derivatives, install the keyring package once; tsuzuki then
+updates with the rest of the system:
+
+```sh
+curl -fsSLO https://emofa.github.io/tsuzuki/tsuzuki-archive-keyring.deb
+sudo apt install ./tsuzuki-archive-keyring.deb
+sudo apt update && sudo apt install tsuzuki
+```
 
 Each installs mpv too, and updates with your package manager (`brew upgrade`,
-`winget upgrade`). On Windows, open a new terminal after installing
-so `tsuzuki` is on your `PATH`.
+`apt upgrade`, `dnf upgrade`, `winget upgrade`). On Windows, open a new terminal
+after installing so `tsuzuki` is on your `PATH`.
 
 Archives, `.deb` and `.rpm` packages are also on the
 [releases page](https://github.com/EmoFa/tsuzuki/releases). A binary unpacked from an
@@ -55,7 +65,7 @@ archive replaces itself with `tsuzuki upgrade`: it downloads the latest release,
 it against the release's checksums, and swaps it in. Installations a package manager
 owns are left to that package manager, and tsuzuki says which command to run.
 
-**With Go** (1.27 or newer):
+**With Go** (1.25 or newer):
 
 ```sh
 go install github.com/EmoFa/tsuzuki/cmd/tsuzuki@latest

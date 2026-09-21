@@ -5,3 +5,7 @@
 *.db-wal
 *.log
 /.devdata/
+
+# Made during a release for the Fedora package.
+vendor/
+vendor.tar.gz

@@ -17,6 +17,13 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      - name: Vendor the dependencies for the Fedora package
+        # Copr builds without network access, so the release carries the
+        # dependencies with it. Removed again so goreleaser builds as usual.
+        run: |
+          go mod vendor
+          tar czf vendor.tar.gz vendor
+          rm -rf vendor
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"

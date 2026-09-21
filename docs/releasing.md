@@ -14,6 +14,24 @@ Pushing a version tag runs `.github/workflows/release.yml`, which uses gorelease
 Tags with a suffix, such as `v1.2.0-rc1`, make a GitHub prerelease and skip the
 package managers.
 
+Publishing the release then runs `.github/workflows/packages.yml`, which covers the
+two repositories goreleaser doesn't:
+
+- **apt**, at <https://emofa.github.io/tsuzuki/apt>. The job rebuilds the repository
+  from the `.deb` files of the last five releases, signs it, and deploys it to GitHub
+  Pages along with the public key and `tsuzuki-archive-keyring.deb`, the package that
+  sets a user's machine up. `packaging/build-apt-repo.sh` builds it and
+  `packaging/test-apt-repo.sh` installs from it in a Debian container before it is
+  published; both run locally too.
+- **Fedora**, through [Copr](https://copr.fedorainfracloud.org/coprs/emofa/tsuzuki/).
+  The job builds a source RPM from `packaging/tsuzuki.spec` and hands it to Copr, which
+  builds it for each enabled Fedora release. Copr builds without network access, so the
+  release carries a `tsuzuki-<version>-vendor.tar.gz` of the Go dependencies that the
+  spec builds from.
+
+`workflow_dispatch` runs it with a throwaway signing key and publishes nothing, which
+is the way to test a change to either.
+
 ## Making a release
 
 ```sh
@@ -36,6 +54,14 @@ still publishes without them.
 | winget fork | A fork of [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) (master branch only). It doesn't need cloning or keeping in sync. |
 | `PACKAGES_GITHUB_TOKEN` secret | A classic token (<https://github.com/settings/tokens/new>) with only the `public_repo` scope, saved under Settings → Secrets and variables → Actions. It pushes to the tap and the winget fork, and expires like any token. |
 | `AUR_SSH_KEY` secret | A dedicated key (`ssh-keygen -t ed25519 -f aur -N "" -C "tsuzuki AUR"`). The public half goes on an [AUR account](https://aur.archlinux.org) under My Account → SSH Public Key, the private half into the secret. The first release after that creates the package. |
+| GitHub Pages | Settings → Pages → Source: **GitHub Actions**. The apt repository is published there. |
+| `APT_GPG_PRIVATE_KEY` secret | The armoured private half of a passphrase-less signing key (`gpg --quick-gen-key 'tsuzuki repository <…>' rsa4096 sign never`). Users trust its public half, so replacing it means every machine reinstalls the keyring package. |
+| `COPR_LOGIN`, `COPR_USERNAME`, `COPR_TOKEN` secrets | From the config block at <https://copr.fedorainfracloud.org/api/>, for the account owning the `tsuzuki` project. Tokens expire; the page issues new ones. |
+
+Copr retires a chroot when its Fedora release goes end of life, so the project's chroot
+list (Settings → Edit project) needs ticking forward about once a year. The spec needs a
+Go toolchain at least as new as the `go` directive in `go.mod`, which is what decides
+whether a given Fedora release can build it.
 
 ## Winget pull requests
 

@@ -73,6 +73,11 @@ release:
   github:
     owner: EmoFa
     name: tsuzuki
+  extra_files:
+    # Copr builds without network access, so the Go dependencies ship with the
+    # release for the RPM to build from. Made by .github/workflows/release.yml.
+    - glob: vendor.tar.gz
+      name_template: "{{ .ProjectName }}-{{ .Version }}-vendor.tar.gz"
   # Published straight away: Homebrew, winget and the AUR download from it.
   draft: false
   prerelease: auto
