@@ -112,6 +112,9 @@ jobs:
   installer-arm64:
     name: Windows installer (arm64)
     needs: [installer]
+    # always(), because a manual run skips the release job and GitHub carries a
+    # skip down the whole chain otherwise.
+    if: always() && needs.installer.result == 'success'
     runs-on: windows-11-arm
     steps:
       - uses: actions/download-artifact@v4
@@ -146,6 +149,7 @@ jobs:
   installer-publish:
     name: Publish the installer
     needs: [installer, installer-arm64]
+    if: always() && needs.installer.result == 'success' && needs['installer-arm64'].result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
