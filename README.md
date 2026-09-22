@@ -23,39 +23,27 @@ tsuzuki doesn't host anything: it finds streams on third-party sites and plays t
 
 ## Install
 
-| Platform | Command |
+| Platform | Install |
 |---|---|
 | macOS, Linux ([Homebrew](https://brew.sh)) | `brew install EmoFa/tap/tsuzuki` |
-| Windows | `winget install EmoFa.tsuzuki` |
-| Windows ([Scoop](https://scoop.sh)) | `scoop bucket add emofa https://github.com/EmoFa/scoop-bucket` then `scoop install tsuzuki` |
+| Debian, Ubuntu | `curl -fsSLO https://emofa.github.io/tsuzuki/tsuzuki-archive-keyring.deb && sudo apt install ./tsuzuki-archive-keyring.deb && sudo apt update && sudo apt install tsuzuki` |
 | Fedora | `sudo dnf copr enable emofa/tsuzuki && sudo dnf install tsuzuki` |
+| Windows ([winget](https://learn.microsoft.com/windows/package-manager/)) | `winget install EmoFa.tsuzuki` |
+| Windows ([Scoop](https://scoop.sh)) | `scoop bucket add emofa https://github.com/EmoFa/scoop-bucket && scoop install tsuzuki` |
+| Windows (installer) | `tsuzuki_<version>_windows_setup.exe` from the [releases page](https://github.com/EmoFa/tsuzuki/releases/latest) |
+| Anywhere, with Go 1.25+ | `go install github.com/EmoFa/tsuzuki/cmd/tsuzuki@latest` |
+| Anywhere, by hand | An [archive](https://github.com/EmoFa/tsuzuki/releases/latest) for your platform, kept current with `tsuzuki upgrade` |
 
-On Debian, Ubuntu and derivatives, add the repository once:
+A few things worth knowing:
 
-```sh
-curl -fsSLO https://emofa.github.io/tsuzuki/tsuzuki-archive-keyring.deb
-sudo apt install ./tsuzuki-archive-keyring.deb
-sudo apt update && sudo apt install tsuzuki
-```
-
-Each of these installs mpv too and updates with the rest of your system, except Scoop,
-where mpv is a separate `scoop install extras/mpv`. On Windows, open a new terminal
-afterwards so `tsuzuki` is on your `PATH`.
-
-Windows also has an installer on the [releases page](https://github.com/EmoFa/tsuzuki/releases)
-(`tsuzuki_<version>_windows_setup.exe`) if you'd rather not use a package manager: it adds
-tsuzuki to your `PATH` and appears in Add or remove programs. It isn't signed, so Windows
-will ask you to confirm the first time.
-
-Archives for every platform are on the [releases page](https://github.com/EmoFa/tsuzuki/releases),
-and one unpacked by hand keeps itself current with `tsuzuki upgrade`. With Go 1.25 or
-newer, `go install github.com/EmoFa/tsuzuki/cmd/tsuzuki@latest` works too.
-
-One provider needs **Chrome, Chromium or Edge** installed, as does getting past the bot
-checks a few sites use. If you have none, `browser.auto_download = true` in the config
-fetches a copy of Chromium.
-
-Run `tsuzuki doctor` to check your setup.
+- **mpv** comes with the Homebrew, apt, dnf and winget installs. The rest need it
+  separately: `scoop install extras/mpv`, `winget install shinchiro.mpv`, or
+  [mpv.io](https://mpv.io).
+- **On Windows**, open a new terminal after installing so `tsuzuki` is on your `PATH`. The
+  installer isn't signed, so Windows asks you to confirm it the first time.
+- **Chrome, Chromium or Edge** is needed by one provider and by the bot checks a few sites
+  use. Without one, `browser.auto_download = true` fetches a copy of Chromium.
+- **`tsuzuki doctor`** checks all of the above and tells you what's missing.
 
 ## Getting started
 
