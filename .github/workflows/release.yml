@@ -80,6 +80,26 @@ jobs:
           & $iscc /? | Select-Object -First 1
           & $iscc /DVersion=${{ steps.rel.outputs.version }} packaging\windows\tsuzuki.iss
 
+      - name: Install it, run it, and uninstall it
+        run: |
+          $exe = "packaging\windows\Output\tsuzuki_${{ steps.rel.outputs.version }}_windows_setup.exe"
+          $dir = "$env:RUNNER_TEMP\tsuzuki-install-test"
+          Start-Process -FilePath $exe -Wait -ArgumentList `
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=addtopath", "/DIR=$dir"
+
+          & "$dir\tsuzuki.exe" version
+          if ($LASTEXITCODE -ne 0) { throw "the installed tsuzuki didn't run" }
+          if (-not ([Environment]::GetEnvironmentVariable('Path', 'User') -like "*$dir*")) {
+            throw "the installer didn't add itself to PATH"
+          }
+
+          Start-Process -FilePath "$dir\unins000.exe" -Wait -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES"
+          if (Test-Path "$dir\tsuzuki.exe") { throw "uninstalling left the binary behind" }
+          if ([Environment]::GetEnvironmentVariable('Path', 'User') -like "*$dir*") {
+            throw "uninstalling left the PATH entry behind"
+          }
+          Write-Host "installed, ran, and uninstalled cleanly"
+
       - name: Attach it to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
