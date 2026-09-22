@@ -35,8 +35,11 @@ A second job in the Release workflow builds the Windows installer on a Windows r
 takes the `.exe` files out of the release, runs Inno Setup over
 `packaging/windows/tsuzuki.iss` (6.3 or newer, for arm64), and attaches
 `tsuzuki_<version>_windows_setup.exe` to the same release. Running the Release workflow
-by hand with a version builds an installer for a release that already exists. Two things
-to know about it: it isn't code-signed, so SmartScreen warns on first run, and a copy
+by hand with a version builds an installer for a release that already exists. It is
+installed, run and uninstalled on both a `windows-latest` and a `windows-11-arm` runner
+before it reaches the release, the arm64 job also reading the PE header to check the
+installer really put the arm64 binary there rather than one running under emulation. Two
+things to know about it: it isn't code-signed, so SmartScreen warns on first run, and a copy
 installed this way that later upgrades itself with `tsuzuki upgrade` leaves the version in
 Add or remove programs showing whatever was installed.
 

@@ -100,10 +100,62 @@ jobs:
           }
           Write-Host "installed, ran, and uninstalled cleanly"
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: packaging/windows/Output/*.exe
+          if-no-files-found: error
+
+  # The x64 runner can't tell whether the arm64 half of the installer works, so
+  # a Windows on Arm runner installs it there too. Nothing reaches the release
+  # until both have.
+  installer-arm64:
+    name: Windows installer (arm64)
+    needs: [installer]
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+
+      - name: Install it, check it's the arm64 build, and uninstall it
+        run: |
+          $exe = (Get-ChildItem *.exe)[0].FullName
+          $dir = "$env:RUNNER_TEMP\tsuzuki-arm64-test"
+          Start-Process -FilePath $exe -Wait -ArgumentList `
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=addtopath", "/DIR=$dir"
+
+          & "$dir\tsuzuki.exe" version
+          if ($LASTEXITCODE -ne 0) { throw "the installed tsuzuki didn't run" }
+
+          # An x64 binary would run here under emulation and look fine, so read
+          # the machine type out of the PE header: 0xAA64 is arm64.
+          $stream = [IO.File]::OpenRead("$dir\tsuzuki.exe")
+          $reader = New-Object IO.BinaryReader($stream)
+          $stream.Position = 0x3C
+          $stream.Position = $reader.ReadInt32() + 4
+          $machine = $reader.ReadUInt16()
+          $reader.Close()
+          Write-Host ("machine type: 0x{0:X4}" -f $machine)
+          if ($machine -ne 0xAA64) { throw "the installer put an x64 binary on an arm64 machine" }
+
+          Start-Process -FilePath "$dir\unins000.exe" -Wait -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES"
+          if (Test-Path "$dir\tsuzuki.exe") { throw "uninstalling left the binary behind" }
+          Write-Host "arm64 installed, ran, and uninstalled cleanly"
+
+  installer-publish:
+    name: Publish the installer
+    needs: [installer, installer-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
       - name: Attach it to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $exe = "packaging\windows\Output\tsuzuki_${{ steps.rel.outputs.version }}_windows_setup.exe"
-          Get-Item $exe | Format-List Name, Length
-          gh release upload ${{ steps.rel.outputs.tag }} $exe --clobber
+          tag="${{ inputs.version }}"
+          [ -n "$tag" ] || tag="${{ github.ref_name }}"
+          ls -l ./*.exe
+          gh release upload "$tag" ./*.exe --clobber
