@@ -49,12 +49,46 @@ Source: "arm64\tsuzuki.exe"; DestDir: "{app}"; Check: IsArm64; Flags: ignorevers
 
 [Tasks]
 Name: "addtopath"; Description: "Add tsuzuki to PATH, so it runs from any terminal"
+; Only offered when winget is there to do it and mpv isn't already installed.
+Name: "installmpv"; Description: "Install mpv, which tsuzuki needs to play anything"; \
+    Check: CanInstallMpv
 
 [Registry]
 Root: HKA; Subkey: "{code:EnvironmentKey}"; ValueType: expandsz; ValueName: "Path"; \
     ValueData: "{olddata};{app}"; Tasks: addtopath; Check: NotOnPath(ExpandConstant('{app}'))
 
+[Run]
+Filename: "{code:WingetPath}"; \
+    Parameters: "install --id shinchiro.mpv --exact --accept-source-agreements --accept-package-agreements"; \
+    StatusMsg: "Installing mpv with winget..."; Tasks: installmpv; Flags: runhidden waituntilterminated
+
 [Code]
+// WingetPath is where App Installer puts winget for the current user.
+function WingetPath(Param: string): string;
+begin
+  Result := ExpandConstant('{localappdata}\Microsoft\WindowsApps\winget.exe');
+end;
+
+// HaveMpv reports whether mpv can already be found on PATH.
+function HaveMpv: Boolean;
+var
+  Path: string;
+begin
+  Result := FileSearch('mpv.exe', GetEnv('PATH')) <> '';
+  if not Result then
+  begin
+    Path := GetEnv('ProgramFiles');
+    Result := (Path <> '') and FileExists(Path + '\mpv\mpv.exe');
+  end;
+end;
+
+// CanInstallMpv decides whether to offer the task at all: there's no point
+// offering it without winget, or when mpv is already here.
+function CanInstallMpv: Boolean;
+begin
+  Result := FileExists(WingetPath('')) and not HaveMpv;
+end;
+
 // Where PATH lives depends on whether this is an install for everyone.
 function EnvironmentKey(Param: string): string;
 begin

@@ -36,9 +36,9 @@ tsuzuki doesn't host anything: it finds streams on third-party sites and plays t
 
 A few things worth knowing:
 
-- **mpv** comes with the Homebrew, apt, dnf and winget installs. The rest need it
-  separately: `scoop install extras/mpv`, `winget install shinchiro.mpv`, or
-  [mpv.io](https://mpv.io).
+- **mpv** comes with the Homebrew, apt, dnf and winget installs, and the Windows
+  installer offers to add it. Otherwise install it yourself:
+  `scoop install extras/mpv`, `winget install shinchiro.mpv`, or [mpv.io](https://mpv.io).
 - **On Windows**, open a new terminal after installing so `tsuzuki` is on your `PATH`. The
   installer isn't signed, so Windows asks you to confirm it the first time.
 - **Chrome, Chromium or Edge** is needed by one provider and by the bot checks a few sites

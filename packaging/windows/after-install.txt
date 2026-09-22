@@ -1,6 +1,5 @@
-tsuzuki plays anime in mpv, which this installer does not include.
-
-Install mpv with:
+tsuzuki plays anime in mpv. If you didn't let this installer add it, install
+mpv with
 
     winget install shinchiro.mpv
 
