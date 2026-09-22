@@ -3,12 +3,18 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Existing release to build the Windows installer for, e.g. v0.4.0"
+        required: true
 
 permissions:
   contents: write
 
 jobs:
   release:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -35,3 +41,49 @@ jobs:
           PACKAGES_GITHUB_TOKEN: ${{ secrets.PACKAGES_GITHUB_TOKEN }}
           # SSH private key registered with the AUR account that owns tsuzuki-bin.
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+
+  installer:
+    name: Windows installer
+    needs: [release]
+    # Runs after a release, and on its own against an existing one.
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.release.result == 'success')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Work out which release to build
+        id: rel
+        run: |
+          $tag = "${{ inputs.version }}"
+          if (-not $tag) { $tag = "${{ github.ref_name }}" }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$($tag -replace '^v', '')" >> $env:GITHUB_OUTPUT
+
+      - name: Take the binaries from the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $v = "${{ steps.rel.outputs.version }}"
+          gh release download ${{ steps.rel.outputs.tag }} --dir zips `
+            --pattern "*windows_amd64.zip" --pattern "*windows_arm64.zip"
+          Expand-Archive "zips\tsuzuki_${v}_windows_amd64.zip" -DestinationPath packaging\windows\amd64
+          Expand-Archive "zips\tsuzuki_${v}_windows_arm64.zip" -DestinationPath packaging\windows\arm64
+          Copy-Item LICENSE packaging\windows\LICENSE.txt
+
+      - name: Build the installer
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          # arm64 support arrived in Inno Setup 6.3.
+          & $iscc /? | Select-Object -First 1
+          & $iscc /DVersion=${{ steps.rel.outputs.version }} packaging\windows\tsuzuki.iss
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $exe = "packaging\windows\Output\tsuzuki_${{ steps.rel.outputs.version }}_windows_setup.exe"
+          Get-Item $exe | Format-List Name, Length
+          gh release upload ${{ steps.rel.outputs.tag }} $exe --clobber

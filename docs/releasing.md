@@ -5,7 +5,8 @@ Pushing a version tag runs `.github/workflows/release.yml`, which uses gorelease
 1. build every platform and publish a GitHub release with archives, `.deb`, `.rpm`
    and Arch packages;
 2. commit the updated cask to [EmoFa/homebrew-tap](https://github.com/EmoFa/homebrew-tap)
-   (`brew install EmoFa/tap/tsuzuki`);
+   (`brew install EmoFa/tap/tsuzuki`) and the Scoop manifest to
+   [EmoFa/scoop-bucket](https://github.com/EmoFa/scoop-bucket) (`scoop install tsuzuki`);
 3. push the updated package to the AUR as `tsuzuki-bin`;
 4. commit winget manifests to a fork of
    [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) and open a pull
@@ -30,6 +31,15 @@ GitHub won't start a workflow from an event the Actions token created:
   release carries a `tsuzuki-<version>-vendor.tar.gz` of the Go dependencies that the
   spec builds from.
 
+A second job in the Release workflow builds the Windows installer on a Windows runner: it
+takes the `.exe` files out of the release, runs Inno Setup over
+`packaging/windows/tsuzuki.iss` (6.3 or newer, for arm64), and attaches
+`tsuzuki_<version>_windows_setup.exe` to the same release. Running the Release workflow
+by hand with a version builds an installer for a release that already exists. Two things
+to know about it: it isn't code-signed, so SmartScreen warns on first run, and a copy
+installed this way that later upgrades itself with `tsuzuki upgrade` leaves the version in
+Add or remove programs showing whatever was installed.
+
 `workflow_dispatch` runs it against the latest release: with the dry run left on it
 signs with a throwaway key and publishes nothing, which is the way to test a change to
 either, and with it off it republishes both repositories.
@@ -53,6 +63,7 @@ still publishes without them.
 | What | How |
 |---|---|
 | Homebrew tap | A public repository named `homebrew-tap` under the same owner. |
+| Scoop bucket | A public repository named `scoop-bucket` under the same owner; manifests land in its `bucket/` directory. |
 | winget fork | A fork of [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) (master branch only). It doesn't need cloning or keeping in sync. |
 | `PACKAGES_GITHUB_TOKEN` secret | A classic token (<https://github.com/settings/tokens/new>) with only the `public_repo` scope, saved under Settings → Secrets and variables → Actions. It pushes to the tap and the winget fork, and expires like any token. |
 | `AUR_SSH_KEY` secret | A dedicated key (`ssh-keygen -t ed25519 -f aur -N "" -C "tsuzuki AUR"`). The public half goes on an [AUR account](https://aur.archlinux.org) under My Account → SSH Public Key, the private half into the secret. The first release after that creates the package. |

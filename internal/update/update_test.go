@@ -50,7 +50,8 @@ func TestNewer(t *testing.T) {
 }
 
 func TestDetectAndUpgradeCommand(t *testing.T) {
-	env := map[string]string{"HOME": "/home/u", "GOPATH": "/work/go", "USERPROFILE": `C:\Users\u`}
+	env := map[string]string{"HOME": "/home/u", "GOPATH": "/work/go", "USERPROFILE": `C:\Users\u`,
+		"SCOOP": `D:\tools\scoop`}
 	getenv := func(k string) string { return env[k] }
 	for _, tc := range []struct {
 		exe, goos string
@@ -65,6 +66,11 @@ func TestDetectAndUpgradeCommand(t *testing.T) {
 		{"/work/go/bin/tsuzuki", "linux", false, KindGo, "go install github.com/EmoFa/tsuzuki/cmd/tsuzuki@latest"},
 		{"/usr/bin/tsuzuki", "linux", true, KindSystemArch, "update tsuzuki-bin with your AUR helper, e.g. yay -Syu"},
 		{"/usr/bin/tsuzuki", "linux", false, KindSystem, "update it with your package manager"},
+		{`C:\Users\u\scoop\apps\tsuzuki\current\tsuzuki.exe`, "windows", false, KindScoop, "scoop update tsuzuki"},
+		{`C:\Users\u\scoop\apps\tsuzuki\0.4.0\tsuzuki.exe`, "windows", false, KindScoop, "scoop update tsuzuki"},
+		{`D:\tools\scoop\apps\tsuzuki\current\tsuzuki.exe`, "windows", false, KindScoop, "scoop update tsuzuki"},
+		// A directory that merely has scoop in its name isn't Scoop's.
+		{`C:\Users\u\scooped\tsuzuki.exe`, "windows", false, KindManual, "tsuzuki upgrade"},
 		{`C:\Users\u\Downloads\tsuzuki.exe`, "windows", false, KindManual, "tsuzuki upgrade"},
 		{"/home/u/apps/tsuzuki", "linux", false, KindManual, "tsuzuki upgrade"},
 	} {

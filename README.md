@@ -27,6 +27,7 @@ tsuzuki doesn't host anything: it finds streams on third-party sites and plays t
 |---|---|
 | macOS, Linux ([Homebrew](https://brew.sh)) | `brew install EmoFa/tap/tsuzuki` |
 | Windows | `winget install EmoFa.tsuzuki` |
+| Windows ([Scoop](https://scoop.sh)) | `scoop bucket add emofa https://github.com/EmoFa/scoop-bucket` then `scoop install tsuzuki` |
 | Fedora | `sudo dnf copr enable emofa/tsuzuki && sudo dnf install tsuzuki` |
 
 On Debian, Ubuntu and derivatives, add the repository once:
@@ -37,8 +38,14 @@ sudo apt install ./tsuzuki-archive-keyring.deb
 sudo apt update && sudo apt install tsuzuki
 ```
 
-Each of these installs mpv too and updates with the rest of your system. On Windows,
-open a new terminal afterwards so `tsuzuki` is on your `PATH`.
+Each of these installs mpv too and updates with the rest of your system, except Scoop,
+where mpv is a separate `scoop install extras/mpv`. On Windows, open a new terminal
+afterwards so `tsuzuki` is on your `PATH`.
+
+Windows also has an installer on the [releases page](https://github.com/EmoFa/tsuzuki/releases)
+(`tsuzuki_<version>_windows_setup.exe`) if you'd rather not use a package manager: it adds
+tsuzuki to your `PATH` and appears in Add or remove programs. It isn't signed, so Windows
+will ask you to confirm the first time.
 
 Archives for every platform are on the [releases page](https://github.com/EmoFa/tsuzuki/releases),
 and one unpacked by hand keeps itself current with `tsuzuki upgrade`. With Go 1.25 or

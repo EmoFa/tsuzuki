@@ -17,6 +17,7 @@ const (
 	KindManual InstallKind = iota
 	KindHomebrew
 	KindWinget
+	KindScoop
 	KindGo
 	// KindSystem is a distribution package: apt, rpm, the AUR.
 	KindSystem
@@ -47,6 +48,8 @@ func detect(exe, goos string, getenv func(string) string, exists func(string) bo
 		in.Kind = KindHomebrew
 	case goos == "windows" && strings.Contains(lower, "/winget/"):
 		in.Kind = KindWinget
+	case goos == "windows" && isScoop(slash, lower, getenv):
+		in.Kind = KindScoop
 	case isGoBin(slash, getenv):
 		in.Kind = KindGo
 	case goos == "linux" && strings.HasPrefix(slash, "/usr/bin/"):
@@ -58,6 +61,21 @@ func detect(exe, goos string, getenv func(string) string, exists func(string) bo
 		in.Kind = KindManual
 	}
 	return in
+}
+
+// isScoop reports whether exe lives in a Scoop installation. Scoop keeps apps
+// under its own root, which "current" links into by version.
+func isScoop(exe, lower string, getenv func(string) string) bool {
+	if strings.Contains(lower, "/scoop/apps/") {
+		return true
+	}
+	for _, key := range []string{"SCOOP", "SCOOP_GLOBAL"} {
+		if root := getenv(key); root != "" &&
+			strings.HasPrefix(strings.ToLower(exe), strings.ToLower(filepath.ToSlash(strings.ReplaceAll(root, `\`, "/")))+"/apps/") {
+			return true
+		}
+	}
+	return false
 }
 
 // SelfUpgrades reports whether tsuzuki may replace this binary itself. Only a
@@ -72,6 +90,8 @@ func (i Install) Command() string {
 		return "brew upgrade tsuzuki"
 	case KindWinget:
 		return "winget upgrade EmoFa.tsuzuki"
+	case KindScoop:
+		return "scoop update tsuzuki"
 	case KindGo:
 		return "go install github.com/EmoFa/tsuzuki/cmd/tsuzuki@latest"
 	case KindSystemArch:

@@ -111,6 +111,27 @@ homebrew_casks:
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/tsuzuki"]
           end
 
+scoops:
+  - name: tsuzuki
+    ids: [tsuzuki]
+    homepage: https://github.com/EmoFa/tsuzuki
+    description: Watch anime from your terminal in mpv, with AniList tracking
+    license: MIT
+    skip_upload: auto
+    # Manifests live in bucket/, the layout Scoop expects of a bucket.
+    directory: bucket
+    # Not `depends: extras/mpv`: that fails outright for anyone who hasn't
+    # added the extras bucket, so say it instead. This is the one channel that
+    # doesn't bring mpv along.
+    # Single-quoted in PowerShell, where a backtick is an escape character.
+    post_install:
+      - "Write-Host 'tsuzuki needs mpv to play anything: scoop install extras/mpv'"
+      - "Write-Host 'Then run: tsuzuki doctor'"
+    repository:
+      owner: EmoFa
+      name: scoop-bucket
+      token: "{{ .Env.PACKAGES_GITHUB_TOKEN }}"
+
 winget:
   - name: tsuzuki
     ids: [tsuzuki]

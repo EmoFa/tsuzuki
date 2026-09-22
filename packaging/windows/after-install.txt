@@ -1,0 +1,15 @@
+tsuzuki plays anime in mpv, which this installer does not include.
+
+Install mpv with:
+
+    winget install shinchiro.mpv
+
+or download it from https://mpv.io and put it on your PATH.
+
+Then open a new terminal and run:
+
+    tsuzuki doctor     to check that everything is found
+    tsuzuki            to start watching
+
+Some providers also need Chrome, Chromium or Edge installed. Settings live in
+%AppData%\tsuzuki, and `tsuzuki config path` prints where everything is kept.

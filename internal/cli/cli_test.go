@@ -17,6 +17,7 @@ import (
 	"github.com/EmoFa/tsuzuki/internal/httpx"
 	"github.com/EmoFa/tsuzuki/internal/store"
 	"github.com/EmoFa/tsuzuki/internal/tracker"
+	"github.com/EmoFa/tsuzuki/internal/update"
 )
 
 var frieren = anilist.Media{
@@ -351,6 +352,25 @@ func TestCheckUpdateAsksGitHubOnceADay(t *testing.T) {
 	}
 	if hits != 1 {
 		t.Errorf("asked GitHub %d times", hits)
+	}
+}
+
+// A binary a package manager owns is upgraded with that package manager.
+func TestUpgradeRefusesAPackagedInstall(t *testing.T) {
+	for _, tc := range []struct {
+		kind    update.InstallKind
+		command string
+	}{
+		{update.KindScoop, "scoop update tsuzuki"},
+		{update.KindWinget, "winget upgrade EmoFa.tsuzuki"},
+		{update.KindHomebrew, "brew upgrade tsuzuki"},
+	} {
+		in := update.Install{Kind: tc.kind, Exe: filepath.Join(t.TempDir(), "tsuzuki")}
+		u := &update.Upgrader{Current: "0.4.0", Install: in}
+		err := u.Check()
+		if err == nil || !strings.Contains(err.Error(), tc.command) {
+			t.Errorf("%v: err = %v, want it to name %q", tc.kind, err, tc.command)
+		}
 	}
 }
 
