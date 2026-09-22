@@ -162,4 +162,5 @@ jobs:
           tag="${{ inputs.version }}"
           [ -n "$tag" ] || tag="${{ github.ref_name }}"
           ls -l ./*.exe
-          gh release upload "$tag" ./*.exe --clobber
+          # --repo, because this job has no checkout for gh to infer it from.
+          gh release upload "$tag" ./*.exe --clobber --repo "$GITHUB_REPOSITORY"
