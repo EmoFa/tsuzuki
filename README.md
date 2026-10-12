@@ -5,9 +5,9 @@
   </picture>
 </p>
 
-Watch anime from your terminal. Find a show, pick an episode, and tsuzuki plays it
-in [mpv](https://mpv.io), remembering where you stopped and keeping your
-[AniList](https://anilist.co) up to date.
+Watch anime from your terminal or your Android phone. Find a show, pick an episode, and
+tsuzuki plays it (in [mpv](https://mpv.io) on the desktop), remembering where you stopped
+and keeping your [AniList](https://anilist.co) up to date.
 
 - **Four providers, tried in turn.** Up to 1080p; a stream that fails, or stops
   partway, moves to the next provider at the same position.
@@ -17,7 +17,7 @@ in [mpv](https://mpv.io), remembering where you stopped and keeping your
 - **Browse** this season, trending, popular, top rated and upcoming anime.
 - **AniList tracking**, or keep everything on your machine. Finish a show and tsuzuki
   asks for your score, then offers the sequel.
-- **Discord Rich Presence**, and a command for every feature if you'd rather script it.
+- **Discord Rich Presence** (on the desktop), and a command for every feature if you'd rather script it.
 
 tsuzuki doesn't host anything: it finds streams on third-party sites and plays them.
 
@@ -31,6 +31,8 @@ tsuzuki doesn't host anything: it finds streams on third-party sites and plays t
 | Windows ([winget](https://learn.microsoft.com/windows/package-manager/)) | `winget install EmoFa.tsuzuki` |
 | Windows ([Scoop](https://scoop.sh)) | `scoop bucket add emofa https://github.com/EmoFa/scoop-bucket && scoop install tsuzuki` |
 | Windows (installer) | `tsuzuki_<version>_windows_setup.exe` from the [releases page](https://github.com/EmoFa/tsuzuki/releases/latest) |
+| Android ([Obtainium](https://obtainium.imranr.dev)) | Add `https://github.com/EmoFa/tsuzuki`, with the APK filter `android_arm64-v8a\.apk$` (or `universal`) |
+| Android (by hand) | `tsuzuki_<version>_android_arm64-v8a.apk` from the [releases page](https://github.com/EmoFa/tsuzuki/releases/latest); it offers updates itself |
 | Anywhere, with Go 1.25+ | `go install github.com/EmoFa/tsuzuki/cmd/tsuzuki@latest` |
 | Anywhere, by hand | An [archive](https://github.com/EmoFa/tsuzuki/releases/latest) for your platform, kept current with `tsuzuki upgrade` |
 
@@ -44,6 +46,9 @@ A few things worth knowing:
 - **Chrome, Chromium or Edge** is needed by one provider and by the bot checks a few sites
   use. Without one, `browser.auto_download = true` fetches a copy of Chromium.
 - **`tsuzuki doctor`** checks all of the above and tells you what's missing.
+- **On Android**, the app is the whole of tsuzuki with a touch interface; it plays in its
+  own player and needs nothing else installed. Android asks once to allow installing
+  from your browser or Obtainium. Settings → Diagnostics is its `tsuzuki doctor`.
 
 ## Getting started
 

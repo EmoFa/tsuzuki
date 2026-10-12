@@ -9,3 +9,7 @@
 # Made during a release for the Fedora package.
 vendor/
 vendor.tar.gz
+
+# Android release signing key: never commit it.
+*.keystore
+*.jks

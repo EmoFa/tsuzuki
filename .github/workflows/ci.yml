@@ -44,6 +44,29 @@ jobs:
       - name: Build
         run: go build -trimpath ./cmd/tsuzuki
 
+  android:
+    runs-on: ubuntu-latest
+    env:
+      NDK_VERSION: 30.0.16248370
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Install the Android platform and NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0" "ndk;$NDK_VERSION" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - name: Lint the Go core for Android
+        run: GOOS=android GOARCH=arm64 go vet ./mobile/...
+      - name: Build the app
+        run: make android
+
   snapshot:
     runs-on: ubuntu-latest
     steps:

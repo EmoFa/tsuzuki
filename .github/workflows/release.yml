@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Existing release to build the Windows installer for, e.g. v0.4.0"
+        description: "Existing release to build the Windows installer and Android app for, e.g. v0.4.0"
         required: true
 
 permissions:
@@ -41,6 +41,69 @@ jobs:
           PACKAGES_GITHUB_TOKEN: ${{ secrets.PACKAGES_GITHUB_TOKEN }}
           # SSH private key registered with the AUR account that owns tsuzuki-bin.
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+
+  android:
+    name: Android app
+    needs: [release]
+    # Runs after a release, and on its own against an existing one.
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.release.result == 'success')
+    runs-on: ubuntu-latest
+    env:
+      NDK_VERSION: 30.0.16248370
+    steps:
+      - name: Work out which release to build
+        id: rel
+        run: |
+          tag="${{ inputs.version }}"
+          [ -n "$tag" ] || tag="${{ github.ref_name }}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.rel.outputs.tag }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Install the Android platform and NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0" "ndk;$NDK_VERSION" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - name: Build the signed APKs
+        env:
+          # The keystore every release is signed with: Android only installs an
+          # update signed with the same key as the app it replaces.
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROIDKEYSTOREBASE64 }}
+          TSUZUKI_KEYSTORE_PASSWORD: ${{ secrets.ANDROIDKEYSTOREPASSWORD }}
+          TSUZUKI_KEY_ALIAS: ${{ secrets.ANDROIDKEYALIAS }}
+          TSUZUKI_KEY_PASSWORD: ${{ secrets.ANDROIDKEYPASSWORD }}
+        run: |
+          [ -n "$ANDROID_KEYSTORE_BASE64" ] || { echo "::error::the ANDROIDKEYSTOREBASE64 secret isn't set"; exit 1; }
+          export TSUZUKI_KEYSTORE="$RUNNER_TEMP/release.keystore"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$TSUZUKI_KEYSTORE"
+          make android RELEASE=1 VERSION=${{ steps.rel.outputs.tag }}
+      - name: Name them for the release
+        run: |
+          v=${{ steps.rel.outputs.version }}
+          mkdir apks
+          for f in android/app/build/outputs/apk/release/app-*-release.apk; do
+            abi=$(basename "$f" | sed 's/^app-//; s/-release\.apk$//')
+            cp "$f" "apks/tsuzuki_${v}_android_${abi}.apk"
+          done
+          # Refuse to publish an APK signed with the debug key.
+          apksigner="$ANDROID_HOME/build-tools/37.0.0/apksigner"
+          for f in apks/*.apk; do
+            "$apksigner" verify --print-certs "$f" | tee /dev/stderr | grep -q "Android Debug" && { echo "::error::$f is debug-signed"; exit 1; }
+          done
+          ls -l apks
+      - name: Attach them to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ steps.rel.outputs.tag }}" apks/*.apk --clobber
 
   installer:
     name: Windows installer

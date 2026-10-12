@@ -43,6 +43,30 @@ things to know about it: it isn't code-signed, so SmartScreen warns on first run
 installed this way that later upgrades itself with `tsuzuki upgrade` leaves the version in
 Add or remove programs showing whatever was installed.
 
+A third job builds the Android app: it builds the Go core with gomobile, then the signed
+APKs with Gradle, and attaches `tsuzuki_<version>_android_<abi>.apk` (`arm64-v8a`,
+`armeabi-v7a`, `x86_64` and `universal`) to the same release. Obtainium and the app's own
+update check find them by those names, so keep them. Running the Release workflow by
+hand with a version builds the APKs for a release that already exists, too.
+
+Every release must be signed with the same key, because Android only installs an update
+signed like the app it replaces; losing the key means everyone reinstalls. Make it once,
+keep a copy somewhere safe, and give it to the workflow as secrets:
+
+```sh
+keytool -genkeypair -v -keystore tsuzuki-release.keystore -alias tsuzuki \
+  -keyalg RSA -keysize 4096 -validity 36500
+base64 -w0 tsuzuki-release.keystore | gh secret set ANDROIDKEYSTOREBASE64
+gh secret set ANDROIDKEYSTOREPASSWORD   # the passwords keytool asked for
+gh secret set ANDROIDKEYPASSWORD
+gh secret set ANDROIDKEYALIAS --body tsuzuki
+```
+
+The job refuses to publish an APK signed with a debug key. To build release APKs
+locally, point `TSUZUKI_KEYSTORE`, `TSUZUKI_KEYSTORE_PASSWORD`, `TSUZUKI_KEY_ALIAS` and
+`TSUZUKI_KEY_PASSWORD` at the same key and run `make android RELEASE=1`; see
+[development.md](development.md) for the Android SDK.
+
 `workflow_dispatch` runs it against the latest release: with the dry run left on it
 signs with a throwaway key and publishes nothing, which is the way to test a change to
 either, and with it off it republishes both repositories.
