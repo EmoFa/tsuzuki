@@ -9,9 +9,9 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/EmoFa/tsuzuki/internal/browser"
 	"github.com/EmoFa/tsuzuki/internal/hls"
 	"github.com/EmoFa/tsuzuki/internal/httpx"
+	"github.com/EmoFa/tsuzuki/internal/sniff"
 )
 
 // MegaplayOrigin is the Referer megaplay's CDNs require for playlists,
@@ -23,9 +23,9 @@ var (
 	megaplayMaster  = regexp.MustCompile(`\.m3u8(\?|$)`)
 )
 
-// Sniffer runs an embed page in a browser (browser.Sniffer).
+// Sniffer runs an embed page in a browser (browser.Sniffer on desktop).
 type Sniffer interface {
-	Sniff(ctx context.Context, req browser.SniffRequest) (map[string]browser.Captured, error)
+	Sniff(ctx context.Context, req sniff.Request) (map[string]sniff.Captured, error)
 }
 
 type MegaplayTrack struct {
@@ -52,10 +52,10 @@ type MegaplayResult struct {
 // HLS master: getSources returns the URL encrypted, and only the player's
 // obfuscated script can decrypt it. The master is then fetched directly.
 func ResolveMegaplay(ctx context.Context, sn Sniffer, client *httpx.Client, embedURL, referer string) (MegaplayResult, error) {
-	got, err := sn.Sniff(ctx, browser.SniffRequest{
+	got, err := sn.Sniff(ctx, sniff.Request{
 		URL:     embedURL,
 		Referer: referer,
-		Matches: []browser.Match{
+		Matches: []sniff.Match{
 			{Name: "sources", URL: megaplaySources, Body: true},
 			{Name: "master", URL: megaplayMaster},
 		},

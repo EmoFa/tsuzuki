@@ -30,7 +30,9 @@ type Options struct {
 
 // Request describes one thing to play.
 type Request struct {
-	URL       string
+	URL string
+	// Kind is "hls" or "mp4", for players that can't tell from the URL. mpv can.
+	Kind      string
 	Title     string
 	Start     time.Duration
 	Headers   map[string]string // sent with every HTTP request mpv makes

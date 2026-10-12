@@ -33,8 +33,25 @@ type Cache interface {
 
 // Release is a published version.
 type Release struct {
-	Version string `json:"version"` // without the leading "v"
-	URL     string `json:"url"`
+	Version string  `json:"version"` // without the leading "v"
+	URL     string  `json:"url"`
+	Assets  []Asset `json:"assets,omitempty"`
+}
+
+// Asset is a file attached to a release.
+type Asset struct {
+	Name string `json:"name"`
+	URL  string `json:"url"` // direct download
+}
+
+// Asset returns the release's file whose name ends with suffix, if any.
+func (r Release) Asset(suffix string) (Asset, bool) {
+	for _, a := range r.Assets {
+		if strings.HasSuffix(a.Name, suffix) {
+			return a, true
+		}
+	}
+	return Asset{}, false
 }
 
 type Checker struct {
@@ -60,12 +77,19 @@ func (c *Checker) Latest(ctx context.Context) (Release, error) {
 	var resp struct {
 		TagName string `json:"tag_name"`
 		HTMLURL string `json:"html_url"`
+		Assets  []struct {
+			Name string `json:"name"`
+			URL  string `json:"browser_download_url"`
+		} `json:"assets"`
 	}
 	headers := map[string]string{"Accept": "application/vnd.github+json"}
 	if err := c.Client.GetJSON(ctx, url, headers, &resp); err != nil {
 		return Release{}, fmt.Errorf("checking for updates: %w", err)
 	}
 	r := Release{Version: strings.TrimPrefix(resp.TagName, "v"), URL: resp.HTMLURL}
+	for _, a := range resp.Assets {
+		r.Assets = append(r.Assets, Asset{Name: a.Name, URL: a.URL})
+	}
 	if r.Version == "" {
 		return Release{}, fmt.Errorf("checking for updates: no release found")
 	}

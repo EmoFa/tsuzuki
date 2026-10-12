@@ -17,6 +17,7 @@ import (
 
 	"github.com/EmoFa/tsuzuki/internal/anilist"
 	"github.com/EmoFa/tsuzuki/internal/config"
+	"github.com/EmoFa/tsuzuki/internal/core"
 	"github.com/EmoFa/tsuzuki/internal/domain"
 	"github.com/EmoFa/tsuzuki/internal/session"
 )
@@ -321,7 +322,7 @@ func subsFlag(app *App, flag string) (*domain.SubtitlePrefs, error) {
 	case "":
 		return nil, nil
 	case "off", "none", "hide":
-		p := app.subtitlePrefs()
+		p := app.SubtitlePrefs()
 		p.Show = false
 		return &p, nil
 	}
@@ -364,7 +365,7 @@ func (p *statusPrinter) print(s session.Status) {
 	case session.StatusResolving:
 		p.line("Looking for episode %s on %s…", ep, s.Provider)
 	case session.StatusProviderFailed:
-		p.line("  ✗ %s", firstLineOf(s.Err.Error())) // errors already name the provider
+		p.line("  ✗ %s", core.FirstLine(s.Err.Error())) // errors already name the provider
 	case session.StatusPlaying:
 		msg := fmt.Sprintf("▶ %s · Episode %s · %s %s", s.Media.DisplayTitle(), ep, s.Provider, s.Stream.Label)
 		if s.Start > 0 {
@@ -386,7 +387,7 @@ func (p *statusPrinter) print(s session.Status) {
 		p.line("  ⏭ Skipped %s", s.Reason)
 	case session.StatusTracked:
 		if s.Err != nil {
-			p.line("  ✗ updating your list: %s", firstLineOf(s.Err.Error()))
+			p.line("  ✗ updating your list: %s", core.FirstLine(s.Err.Error()))
 		} else {
 			p.line("  %s", s.Reason)
 		}

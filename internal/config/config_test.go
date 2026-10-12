@@ -142,3 +142,30 @@ func TestRemovedProvidersStayValidButAreSkipped(t *testing.T) {
 		t.Error("unknown provider accepted")
 	}
 }
+
+// What Save writes, Load reads back the same.
+func TestSaveRoundTrips(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config", "config.toml")
+	cfg := Default()
+	cfg.General.Mode = "dub"
+	cfg.Subtitles.Languages = []string{"es", "en"}
+	cfg.Skip.Recap = "off"
+	if err := Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	got, exists, err := Load(path)
+	if err != nil || !exists {
+		t.Fatalf("load: %v, exists %v", err, exists)
+	}
+	if !reflect.DeepEqual(got, cfg) {
+		t.Errorf("got %+v\nwant %+v", got, cfg)
+	}
+
+	cfg.General.Mode = "both"
+	if err := Save(path, cfg); err == nil {
+		t.Error("saved an invalid mode")
+	}
+	if got, _, _ := Load(path); got.General.Mode != "dub" {
+		t.Errorf("a refused save changed the file: mode %q", got.General.Mode)
+	}
+}

@@ -30,18 +30,11 @@ import (
 
 	"github.com/EmoFa/tsuzuki/internal/httpx"
 	"github.com/EmoFa/tsuzuki/internal/procfs"
+	"github.com/EmoFa/tsuzuki/internal/sniff"
 )
 
-var ErrNoBrowser = errors.New("no usable Chrome/Chromium: install one or set browser.path in the config")
-
-// challengeJS reports whether the page is still showing a bot challenge (or
-// hasn't finished loading the target yet).
-const challengeJS = `() => {
-	if (location.href === "about:blank" || document.readyState !== "complete") return true;
-	const t = document.title || "";
-	if (/just a moment|checking your browser|ddos-guard|attention required/i.test(t)) return true;
-	return !!document.querySelector('#challenge-form, #challenge-error-text, #challenge-running, script[src*="ddos-guard/js-challenge"]');
-}`
+// ErrNoBrowser is sniff.ErrNoBrowser, which providers check for.
+var ErrNoBrowser = sniff.ErrNoBrowser
 
 var devtoolsURL = regexp.MustCompile(`DevTools listening on (ws://\S+)`)
 
@@ -204,7 +197,7 @@ func (s *Solver) headless(ctx context.Context, bin, pageURL string, wait time.Du
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		res, err := page.Eval(challengeJS)
+		res, err := page.Eval(sniff.ChallengeJS)
 		// Evaluation fails transiently while the challenge reloads the page.
 		if err == nil && !res.Value.Bool() {
 			break

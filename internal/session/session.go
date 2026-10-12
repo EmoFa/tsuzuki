@@ -57,6 +57,9 @@ type Settings struct {
 	CheckTimeout     time.Duration // per stream health check; default 10s
 	// SkipActions is "auto", "prompt" or "off" for each skippable kind.
 	SkipActions map[domain.SkipKind]string
+	// SkipButton means the interface offers its own skip button when it gets
+	// StatusSkipPrompt, so prompts aren't also shown as text in the player.
+	SkipButton bool
 	// Skip filler/recap episodes when choosing the next episode automatically
 	// (autoplay and continue). Episodes picked explicitly always play.
 	SkipFillerEpisodes bool
@@ -134,6 +137,7 @@ const (
 	StatusStopped                              // playback ended; Reason set
 	StatusNoNextEpisode                        // autoplay found nothing after Episode
 	StatusFinishedShow                         // the last episode of a finished show was watched
+	StatusSkipPrompt                           // the range from Position, lasting Duration more, can be skipped; Reason is its kind
 )
 
 type Status struct {
@@ -587,10 +591,10 @@ func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, m
 
 	skipper := skip.NewSkipper(s.Settings.SkipActions)
 	skipper.SetRanges(res.stream.Skips)
-	if err := pb.BindKey(ctx, skipKey, skipMessage); err != nil {
+	if err := pb.BindKey(ctx, skipKey, SkipMessage); err != nil {
 		slog.Debug("binding skip key", "err", err)
 	}
-	applySkip := func(d skip.Decision) {
+	applySkip := func(d skip.Decision, pos time.Duration) {
 		switch {
 		case d.Seek > 0:
 			if err := pb.Seek(ctx, d.Seek); err != nil {
@@ -602,8 +606,15 @@ func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, m
 			sk.Kind, sk.Reason = StatusSkipped, string(d.Kind)
 			s.status(sk)
 		case d.Prompt:
-			text := fmt.Sprintf("%s · press %s to skip", capitalize(string(d.Kind)), skipKey)
-			pb.ShowText(ctx, text, min(d.Until, 10*time.Second))
+			// The whole rest of the range, so a skip button can come back
+			// while it lasts; the text prompt shows for 10s at most.
+			p := base
+			p.Kind, p.Reason, p.Position, p.Duration = StatusSkipPrompt, string(d.Kind), pos, d.Until
+			s.status(p)
+			if !s.Settings.SkipButton {
+				text := fmt.Sprintf("%s · press %s to skip", capitalize(string(d.Kind)), skipKey)
+				pb.ShowText(ctx, text, min(d.Until, 10*time.Second))
+			}
 		}
 	}
 
@@ -632,7 +643,7 @@ func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, m
 				u := base
 				u.Kind, u.Position, u.Duration, u.Paused = StatusProgress, e.Position, e.Duration, pb.State().Paused
 				s.status(u)
-				applySkip(skipper.Position(e.Position))
+				applySkip(skipper.Position(e.Position), e.Position)
 				if time.Since(lastSave) >= saveInterval {
 					record(pb.State(), false)
 				}
@@ -643,8 +654,9 @@ func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, m
 				s.status(u)
 				record(st, false)
 			case player.EventMessage:
-				if len(e.Args) > 0 && e.Args[0] == skipMessage {
-					applySkip(skipper.Request(pb.State().Position))
+				if len(e.Args) > 0 && e.Args[0] == SkipMessage {
+					pos := pb.State().Position
+					applySkip(skipper.Request(pos), pos)
 				}
 			}
 		case ranges := <-rangesCh:
@@ -670,10 +682,10 @@ func (s *Session) play(ctx context.Context, media anilist.Media, res resolved, m
 	return st, nil
 }
 
-const (
-	skipKey     = "TAB"
-	skipMessage = "tsuzuki-skip"
-)
+const skipKey = "TAB"
+
+// SkipMessage is the message the skip key or button sends (Playback.BindKey).
+const SkipMessage = "tsuzuki-skip"
 
 // warmSubtitles fetches every subtitle file once, in parallel, so the copy mpv
 // asks for comes from the site's cache instead of a cold origin.
@@ -776,7 +788,7 @@ func nextEpisode(eps []domain.Episode, number float64) (domain.Episode, bool) {
 // PlayerRequest turns a stream into what mpv needs, routing it through proxy
 // when required, with subtitles ordered by subs.
 func PlayerRequest(s domain.Stream, proxy Proxy, subs domain.SubtitlePrefs) (player.Request, error) {
-	req := player.Request{URL: s.URL, Headers: s.Headers, AudioLang: s.AudioLang, SubLangs: subs.Languages, HideSubs: !subs.Show}
+	req := player.Request{URL: s.URL, Kind: string(s.Kind), Headers: s.Headers, AudioLang: s.AudioLang, SubLangs: subs.Languages, HideSubs: !subs.Show}
 	subURL := func(u string) string { return u }
 	if s.NeedsProxy {
 		if proxy == nil {

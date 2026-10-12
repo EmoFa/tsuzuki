@@ -132,3 +132,28 @@ func TestLatestIsCachedForADay(t *testing.T) {
 		t.Fatalf("stale cache: hits=%d err=%v", hits.Load(), err)
 	}
 }
+
+// A release's files are kept, cached too, so the Android app can find its APK.
+func TestLatestKeepsAssets(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"tag_name":"v0.5.0","html_url":"https://github.com/EmoFa/tsuzuki/releases/tag/v0.5.0","assets":[
+			{"name":"tsuzuki_0.5.0_linux_amd64.tar.gz","browser_download_url":"https://x/linux.tar.gz"},
+			{"name":"tsuzuki_0.5.0_android_arm64-v8a.apk","browser_download_url":"https://x/arm64.apk"}]}`))
+	}))
+	defer srv.Close()
+	cache := &memCache{values: map[string]string{}}
+	c := &Checker{Client: httpx.New(httpx.Options{Retries: -1}), Cache: cache, URL: srv.URL}
+	for range 2 { // the second answer comes from the cache
+		r, err := c.Latest(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		a, ok := r.Asset("_android_arm64-v8a.apk")
+		if !ok || a.URL != "https://x/arm64.apk" {
+			t.Fatalf("asset %+v, %v (release %+v)", a, ok, r)
+		}
+		if _, ok := r.Asset("_android_x86_64.apk"); ok {
+			t.Error("found an asset that isn't there")
+		}
+	}
+}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/EmoFa/tsuzuki/internal/core"
 	"github.com/EmoFa/tsuzuki/internal/domain"
 	"github.com/EmoFa/tsuzuki/internal/player"
 	"github.com/EmoFa/tsuzuki/internal/provider"
@@ -201,7 +202,7 @@ func playDebug(ctx context.Context, app *App, s domain.Stream, title string, sta
 		}
 		proxy = p
 	}
-	req, err := session.PlayerRequest(s, proxy, app.subtitlePrefs())
+	req, err := session.PlayerRequest(s, proxy, app.SubtitlePrefs())
 	if err != nil {
 		return err
 	}
@@ -337,7 +338,7 @@ func newMappingCmds(app *App) []*cobra.Command {
 					}
 					show, err := mapper.Resolve(ctx, p, media, m)
 					if err != nil {
-						fmt.Fprintf(cmd.OutOrStdout(), "  %-10s %s\n", name, firstLineOf(err.Error()))
+						fmt.Fprintf(cmd.OutOrStdout(), "  %-10s %s\n", name, core.FirstLine(err.Error()))
 						continue
 					}
 					fmt.Fprintf(cmd.OutOrStdout(), "  %-10s %s  %s\n", name, show.ID, show.Title)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/EmoFa/tsuzuki/internal/anilist"
 	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/episodes"
 	"github.com/EmoFa/tsuzuki/internal/session"
 	"github.com/EmoFa/tsuzuki/internal/store"
 	"github.com/EmoFa/tsuzuki/internal/tracker"
@@ -94,18 +95,12 @@ func (h *homeScreen) load() tea.Cmd {
 			if err != nil {
 				return homeLoadedMsg{tab: tab, err: err}
 			}
-			done := map[int]bool{}
-			for _, e := range finished {
-				done[e.MediaID] = true
-			}
-			for i := range recent {
-				if done[recent[i].MediaID] || len(items) == recentLimit {
-					continue
-				}
-				items = append(items, homeItem{media: media(recent[i].MediaID), progress: &recent[i]})
-			}
-			if len(items) == 0 && len(recent) > 0 {
+			shows, allFinished := episodes.ContinueWatching(recent, finished, recentLimit)
+			if allFinished {
 				return homeLoadedMsg{tab: tab, allFinished: true}
+			}
+			for i := range shows {
+				items = append(items, homeItem{media: media(shows[i].MediaID), progress: &shows[i]})
 			}
 		} else {
 			entries, err := svc.ListEntries(ctx, status)
@@ -200,16 +195,7 @@ func (it homeItem) mode() domain.Mode {
 
 // caughtUp reports that nothing after the watched episodes has aired.
 func caughtUp(it homeItem) bool {
-	aired := float64(it.media.AiredEpisodes())
-	switch {
-	case aired == 0:
-		return false
-	case it.progress != nil:
-		return nextEpisode(*it.progress) > aired
-	case it.entry != nil:
-		return float64(it.entry.Progress) >= aired
-	}
-	return false
+	return episodes.CaughtUp(it.media, it.progress, it.entry)
 }
 
 func (h *homeScreen) View(width, height int) string {
@@ -275,7 +261,7 @@ func itemLine(it homeItem) string {
 	case caughtUp(it):
 		state = fmt.Sprintf("Watched episode %s · caught up", episodeLabel(p.Episode))
 	case p.Completed:
-		state = fmt.Sprintf("Watched episode %s · next up: episode %s", episodeLabel(p.Episode), episodeLabel(nextEpisode(p)))
+		state = fmt.Sprintf("Watched episode %s · next up: episode %s", episodeLabel(p.Episode), episodeLabel(episodes.NextEpisode(p)))
 	default:
 		state = fmt.Sprintf("Episode %s · %s / %s", episodeLabel(p.Episode), clock(p.Position), clock(p.Duration))
 	}

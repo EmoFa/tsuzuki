@@ -476,7 +476,7 @@ func TestDetailsMarkers(t *testing.T) {
 		{Episode: 1, Completed: true, UpdatedAt: now.Add(-2 * time.Hour)},
 		{Episode: 2, Completed: true, UpdatedAt: now.Add(-time.Hour)},
 	}})
-	if next := d.nextUp(); next != 3 {
+	if next := d.NextUp(); next != 3 {
 		t.Fatalf("nextUp = %v", next)
 	}
 	if d.numbers[d.list.cursor] != 3 {
@@ -687,9 +687,6 @@ func TestTextHelpers(t *testing.T) {
 	}
 	if got := clampLines("a\nb\nc", 2); got != "a\nb …" {
 		t.Errorf("clampLines = %q", got)
-	}
-	if got := nextEpisode(store.Progress{Episode: 12.5, Completed: true}); got != 13 {
-		t.Errorf("nextEpisode = %v", got)
 	}
 }
 
@@ -1047,14 +1044,14 @@ func TestDetailsRewatch(t *testing.T) {
 	if svc.rounds != 1 {
 		t.Fatalf("rounds = %d", svc.rounds)
 	}
-	if d.round != 2 || !d.watchedBefore[1] {
-		t.Fatalf("round = %d, watchedBefore = %v", d.round, d.watchedBefore)
+	if d.Round != 2 || !d.WatchedBefore[1] {
+		t.Fatalf("round = %d, watchedBefore = %v", d.Round, d.WatchedBefore)
 	}
 	view := d.View(100, 30)
 	if !strings.Contains(view, "rewatch, round 2") {
 		t.Errorf("view missing the round:\n%s", view)
 	}
-	if next := d.nextUp(); next != 1 {
+	if next := d.NextUp(); next != 1 {
 		t.Errorf("continue would play episode %v, want 1", next)
 	}
 }
@@ -1099,12 +1096,12 @@ func TestDetailsMarkAndJump(t *testing.T) {
 	// w marks the selected episode watched, then unmarks it.
 	_, cmd = d.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
 	apply(cmd)
-	if p, ok := d.progress[372]; !ok || !p.Completed {
-		t.Fatalf("episode 372 not marked: %+v", d.progress[372])
+	if p, ok := d.Progress[372]; !ok || !p.Completed {
+		t.Fatalf("episode 372 not marked: %+v", d.Progress[372])
 	}
 	_, cmd = d.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
 	apply(cmd)
-	if _, ok := d.progress[372]; ok {
+	if _, ok := d.Progress[372]; ok {
 		t.Fatal("second w didn't unmark")
 	}
 	if got := strings.Join(svc.marked, " "); got != "372-372=true 372-372=false" {
@@ -1123,12 +1120,12 @@ func TestDetailsMarkAndJump(t *testing.T) {
 	svc.entries = []store.ListEntry{{MediaID: long.ID, Status: "CURRENT", Progress: 12, UpdatedAt: time.Now()}}
 	apply(d.loadEntry())
 	d.list.setCursor(11) // episode 12
-	if !d.watched(12) {
+	if !d.Watched(12) {
 		t.Fatal("episode 12 should read as watched from the list")
 	}
 	_, cmd = d.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
 	apply(cmd)
-	if d.watched(12) {
+	if d.Watched(12) {
 		t.Error("w on a list-derived tick didn't unmark it")
 	}
 	if e, _ := svc.ListEntry(context.Background(), long.ID); e == nil || e.Progress != 11 {
@@ -1143,7 +1140,7 @@ func TestDetailsMarkAndJump(t *testing.T) {
 		t.Fatalf("W marked %q", got)
 	}
 	for ep := 1.0; ep <= 5; ep++ {
-		if p, ok := d.progress[ep]; !ok || !p.Completed {
+		if p, ok := d.Progress[ep]; !ok || !p.Completed {
 			t.Fatalf("episode %v not marked by W", ep)
 		}
 	}
@@ -1167,10 +1164,10 @@ func TestDetailsMarksFromAniListProgress(t *testing.T) {
 	}
 	apply(d.Init())
 
-	if len(d.progress) != 0 {
-		t.Fatalf("watch history was invented: %+v", d.progress)
+	if len(d.Progress) != 0 {
+		t.Fatalf("watch history was invented: %+v", d.Progress)
 	}
-	if through := d.listWatchedThrough(); through != float64(frieren2.Episodes) {
+	if through := d.ListThrough(); through != float64(frieren2.Episodes) {
 		t.Fatalf("completed show reads as %v episodes watched", through)
 	}
 	if got := strings.Count(d.View(100, 60), "✓"); got < frieren2.Episodes {
@@ -1180,17 +1177,17 @@ func TestDetailsMarksFromAniListProgress(t *testing.T) {
 	// Part way through: the first 12 read as watched and continue follows.
 	svc.entries = []store.ListEntry{{MediaID: frieren2.ID, Status: "CURRENT", Progress: 12, UpdatedAt: time.Now()}}
 	apply(d.loadEntry())
-	if through := d.listWatchedThrough(); through != 12 {
+	if through := d.ListThrough(); through != 12 {
 		t.Fatalf("watched through %v, want 12", through)
 	}
-	if next := d.nextUp(); next != 13 {
+	if next := d.NextUp(); next != 13 {
 		t.Errorf("continue would play %v, want 13", next)
 	}
 
 	// Planning with no progress marks nothing.
 	svc.entries = []store.ListEntry{{MediaID: frieren2.ID, Status: "PLANNING", UpdatedAt: time.Now()}}
 	apply(d.loadEntry())
-	if through := d.listWatchedThrough(); through != 0 {
+	if through := d.ListThrough(); through != 0 {
 		t.Errorf("planning marked %v episodes", through)
 	}
 }
@@ -1199,7 +1196,7 @@ func TestDetailsMarksFromAniListProgress(t *testing.T) {
 // (watched before this rewatch), "part", "next" or "none".
 func marksIn(d *detailsScreen, episodes int) []string {
 	out := make([]string, 0, episodes)
-	next := d.nextUp()
+	next := d.NextUp()
 	for i := range episodes {
 		row := d.episodeRow(i, next, 100)
 		switch {

@@ -1,20 +1,17 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"text/tabwriter"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/EmoFa/tsuzuki/internal/anilist"
-	"github.com/EmoFa/tsuzuki/internal/auth"
-	"github.com/EmoFa/tsuzuki/internal/session"
+	"github.com/EmoFa/tsuzuki/internal/core"
 	"github.com/EmoFa/tsuzuki/internal/tracker"
 )
 
@@ -24,7 +21,7 @@ func newLoginCmd(app *App) *cobra.Command {
 		Short: "Log in to AniList so watched episodes sync to your list",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name, err := login(cmd.Context(), app, func(url string) {
+			name, err := app.Login(cmd.Context(), func(url string) {
 				fmt.Fprintf(os.Stderr, "Opening AniList in your browser to approve tsuzuki…\nIf nothing opens, visit:\n  %s\n", url)
 			})
 			if err != nil {
@@ -35,7 +32,7 @@ func newLoginCmd(app *App) *cobra.Command {
 				fmt.Fprintln(os.Stderr, `tracking.backend is "local", so nothing will sync. Set it to "anilist" to sync your list.`)
 				return nil
 			}
-			if msg, err := syncList(cmd.Context(), app); err != nil {
+			if msg, err := app.Sync(cmd.Context()); err != nil {
 				fmt.Fprintln(os.Stderr, "Couldn't fetch your list yet:", err)
 			} else {
 				fmt.Fprintln(os.Stderr, msg)
@@ -45,51 +42,13 @@ func newLoginCmd(app *App) *cobra.Command {
 	}
 }
 
-// login runs the browser flow, verifies the token and stores it.
-func login(ctx context.Context, app *App, show func(url string)) (string, error) {
-	clientID := app.aniListClientID()
-	grant, err := auth.Login(ctx, auth.LoginOptions{
-		ClientID: clientID,
-		Open: func(url string) error {
-			show(url)
-			return auth.OpenBrowser(url)
-		},
-	})
-	if errors.Is(err, auth.ErrNoClientID) {
-		return "", fmt.Errorf(`%w. Create one at https://anilist.co/settings/developer with redirect URL
-%s, then set tracking.anilist_client_id in %s`, err, auth.RedirectURL, app.ConfigPath)
-	}
-	if err != nil {
-		return "", err
-	}
-	al, err := app.AniList(ctx)
-	if err != nil {
-		return "", err
-	}
-	user, err := al.WithToken(grant.AccessToken).Viewer(ctx)
-	if err != nil {
-		return "", fmt.Errorf("checking the new login: %w", err)
-	}
-	tok := auth.Token{AccessToken: grant.AccessToken, UserID: user.ID, UserName: user.Name}
-	if grant.ExpiresIn > 0 {
-		tok.ExpiresAt = time.Now().Add(grant.ExpiresIn)
-	}
-	if err := app.tokenFile().Save(tok); err != nil {
-		return "", err
-	}
-	app.lazyMu.Lock()
-	app.tracker = nil // rebuild with the new login
-	app.lazyMu.Unlock()
-	return user.Name, nil
-}
-
 func newLogoutCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "logout",
 		Short: "Forget the AniList login",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.tokenFile().Delete(); err != nil {
+			if err := app.Logout(); err != nil {
 				return err
 			}
 			fmt.Fprintln(os.Stderr, "Logged out. Your local list is kept.")
@@ -105,7 +64,7 @@ func newWhoamiCmd(app *App) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
-			tok, err := app.tokenFile().Load()
+			tok, err := app.TokenFile().Load()
 			if err != nil {
 				return err
 			}
@@ -138,7 +97,7 @@ func newSyncCmd(app *App) *cobra.Command {
 		Short: "Send pending list changes to AniList and fetch your list",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			msg, err := syncList(cmd.Context(), app)
+			msg, err := app.Sync(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -146,29 +105,6 @@ func newSyncCmd(app *App) *cobra.Command {
 			return nil
 		},
 	}
-}
-
-// syncList flushes queued changes and pulls the remote list.
-func syncList(ctx context.Context, app *App) (string, error) {
-	t, err := app.Tracker(ctx)
-	if err != nil {
-		return "", err
-	}
-	if t.Remote == nil {
-		if app.Config.Tracking.Backend != "anilist" {
-			return "", errors.New(`tracking.backend is "local"; nothing to sync`)
-		}
-		return "", errors.New("not logged in to AniList; run `tsuzuki login`")
-	}
-	sent, err := t.Flush(ctx)
-	if err != nil {
-		return "", fmt.Errorf("sending list changes: %w", err)
-	}
-	pulled, err := t.Pull(ctx)
-	if err != nil {
-		return "", fmt.Errorf("fetching your list: %w", err)
-	}
-	return fmt.Sprintf("Synced with AniList: sent %d change(s), fetched %d entries.", sent, pulled), nil
 }
 
 func newListCmd(app *App) *cobra.Command {
@@ -215,22 +151,11 @@ func newListCmd(app *App) *cobra.Command {
 				if e.Score > 0 {
 					score = fmt.Sprintf("%.1f", e.Score)
 				}
-				fmt.Fprintf(w, "%d\t%s\t%d/%s\t%s\t%s\n", e.MediaID, StatusLabel(e.Status), e.Progress, total, score, title)
+				fmt.Fprintf(w, "%d\t%s\t%d/%s\t%s\t%s\n", e.MediaID, core.StatusLabel(e.Status), e.Progress, total, score, title)
 			}
 			return w.Flush()
 		},
 	}
-}
-
-// StatusLabel is the friendly name for a list status.
-func StatusLabel(s string) string {
-	switch s {
-	case tracker.Current:
-		return "watching"
-	case tracker.Repeating:
-		return "rewatching"
-	}
-	return strings.ToLower(s)
 }
 
 func statusFromWord(w string) (string, bool) {
@@ -277,60 +202,10 @@ func newRateCmd(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), scoreNote(r))
+			fmt.Fprintln(cmd.OutOrStdout(), core.ScoreNote(r))
 			return nil
 		},
 	}
-}
-
-// scoreNote describes a SetScore result.
-func scoreNote(r tracker.Result) string {
-	score := strconv.FormatFloat(r.Entry.Score, 'f', -1, 64)
-	switch {
-	case !r.Changed:
-		return "Already rated " + score + "/10."
-	case r.Synced:
-		return "Rated " + score + "/10 on AniList."
-	case errors.Is(r.SyncErr, anilist.ErrUnauthorized):
-		return "Rated " + score + "/10; AniList login expired, run `tsuzuki login` to sync."
-	case r.SyncErr != nil:
-		return "Rated " + score + "/10; AniList sync pending: " + firstLineOf(r.SyncErr.Error())
-	}
-	return "Rated " + score + "/10."
-}
-
-// watchedThrough is how far a show has been watched: the furthest episode
-// completed here, or what the user's list says, whichever is further. It's the
-// snapshot a rewatch keeps so earlier episodes still show as watched.
-func watchedThrough(ctx context.Context, app *App, media anilist.Media) (int, error) {
-	st, err := app.Store(ctx)
-	if err != nil {
-		return 0, err
-	}
-	through := 0
-	eps, err := st.ShowProgress(ctx, media.ID)
-	if err != nil {
-		return 0, err
-	}
-	for _, p := range eps {
-		if p.Completed && int(p.Episode) > through {
-			through = int(p.Episode)
-		}
-	}
-	entry, err := st.ListEntry(ctx, media.ID)
-	if err != nil {
-		return 0, err
-	}
-	if entry != nil {
-		listThrough := entry.Progress
-		if entry.Status == tracker.Completed && media.Episodes > listThrough {
-			listThrough = media.Episodes
-		}
-		if listThrough > through {
-			through = listThrough
-		}
-	}
-	return through, nil
 }
 
 func newRewatchCmd(app *App) *cobra.Command {
@@ -344,154 +219,24 @@ func newRewatchCmd(app *App) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("anilist id must be a number, not %q", args[0])
 			}
-			st, err := app.Store(ctx)
+			rw, err := app.StartRewatch(ctx, id)
 			if err != nil {
 				return err
 			}
-			al, err := app.AniList(ctx)
-			if err != nil {
-				return err
-			}
-			media, err := al.Media(ctx, id)
-			if err != nil {
-				return err
-			}
-			through, err := watchedThrough(ctx, app, media)
-			if err != nil {
-				return err
-			}
-			round, err := st.StartRound(ctx, id, through)
-			if err != nil {
-				return err
-			}
-			t, err := app.Tracker(ctx)
-			if err != nil {
-				return err
-			}
-			r, err := t.StartRewatch(ctx, id)
-			if err != nil {
-				return err
-			}
+			r := rw.Result
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Rewatch started: round %d. `tsuzuki continue` plays episode 1.\n", round)
+			fmt.Fprintf(out, "Rewatch started: round %d. `tsuzuki continue` plays episode 1.\n", rw.Round)
 			switch {
 			case r.Synced:
 				fmt.Fprintln(out, "AniList set to rewatching.")
 			case errors.Is(r.SyncErr, anilist.ErrUnauthorized):
 				fmt.Fprintln(out, "AniList login expired; run `tsuzuki login` to sync.")
 			case r.SyncErr != nil:
-				fmt.Fprintln(out, "AniList sync pending: "+firstLineOf(r.SyncErr.Error()))
+				fmt.Fprintln(out, "AniList sync pending: "+core.FirstLine(r.SyncErr.Error()))
 			}
 			return nil
 		},
 	}
-}
-
-// setWatched marks a range of episodes watched or not, and brings the user's
-// list into step. A list holds one progress number, so it can only say how far
-// an unbroken run from the first episode reaches: marking an episode with
-// earlier ones missing leaves the list where it is, and unmarking one pulls it
-// back to just before that episode.
-func setWatched(ctx context.Context, app *App, media anilist.Media, from, to float64, watched bool) (string, error) {
-	st, err := app.Store(ctx)
-	if err != nil {
-		return "", err
-	}
-	for ep := from; ep <= to; ep++ {
-		if err := st.SetWatched(ctx, media.ID, ep, watched); err != nil {
-			return "", err
-		}
-	}
-	what := session.EpisodeRange(from, to)
-	note := fmt.Sprintf("Marked %s as watched.", what)
-	if !watched {
-		note = fmt.Sprintf("Unmarked %s.", what)
-	}
-
-	entry, err := st.ListEntry(ctx, media.ID)
-	if err != nil {
-		return "", err
-	}
-	round, _, err := st.RoundInfo(ctx, media.ID)
-	if err != nil {
-		return "", err
-	}
-	was := tracker.ListThrough(entry, media.Episodes, round)
-	want, err := listProgress(ctx, app, media, round, was)
-	if err != nil {
-		return "", err
-	}
-	if !watched {
-		// The run now stops at the hole just made.
-		want = min(want, int(from)-1)
-	}
-	if want == was {
-		if watched && want < int(to) {
-			return note + fmt.Sprintf(" Your list still says %s: %s aren't watched yet.",
-				episodeCount(was), session.EpisodeRange(float64(was+1), from-1)), nil
-		}
-		return note, nil
-	}
-
-	t, err := app.Tracker(ctx)
-	if err != nil {
-		return "", err
-	}
-	r, err := t.SetProgress(ctx, media, want)
-	if err != nil {
-		return note + " Updating your list failed: " + firstLineOf(err.Error()), nil
-	}
-	if errors.Is(r.SyncErr, anilist.ErrUnauthorized) {
-		return note + " AniList login expired, run `tsuzuki login` to sync.", nil
-	}
-	if watched {
-		return note + " " + upperFirst(r.Note()) + ".", nil
-	}
-	// Unmarking pulled the list back, which is the part worth saying.
-	note += fmt.Sprintf(" Your list now says %s.", episodeCount(r.Entry.Progress))
-	switch {
-	case r.Synced:
-		note += " AniList updated."
-	case r.SyncErr != nil:
-		note += " AniList sync pending: " + firstLineOf(r.SyncErr.Error())
-	}
-	return note, nil
-}
-
-// listProgress is how far the list can say a show has been watched: the end of
-// the unbroken run of episodes watched in this round, counting what the list
-// already knows about as watched.
-func listProgress(ctx context.Context, app *App, media anilist.Media, round, through int) (int, error) {
-	st, err := app.Store(ctx)
-	if err != nil {
-		return 0, err
-	}
-	eps, err := st.ShowProgress(ctx, media.ID)
-	if err != nil {
-		return 0, err
-	}
-	watched := map[int]bool{}
-	for _, p := range eps {
-		if p.Completed {
-			watched[int(p.Episode)] = true
-		}
-	}
-	return tracker.WatchedRun(watched, through, media.Episodes), nil
-}
-
-// episodeCount reads as "9 episodes watched", for notes about the list.
-func episodeCount(n int) string {
-	if n == 1 {
-		return "1 episode watched"
-	}
-	return fmt.Sprintf("%d episodes watched", n)
-}
-
-func upperFirst(s string) string {
-	if s == "" {
-		return s
-	}
-	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 func newMarkCmd(app *App) *cobra.Command {
@@ -518,7 +263,7 @@ func newMarkCmd(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			note, err := setWatched(ctx, app, media, from, to, !unwatched)
+			note, err := app.SetWatched(ctx, media, from, to, !unwatched)
 			if err != nil {
 				return err
 			}

@@ -15,11 +15,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EmoFa/tsuzuki/internal/browser"
 	"github.com/EmoFa/tsuzuki/internal/domain"
 	"github.com/EmoFa/tsuzuki/internal/extractor"
 	"github.com/EmoFa/tsuzuki/internal/httpx"
 	"github.com/EmoFa/tsuzuki/internal/provider"
+	"github.com/EmoFa/tsuzuki/internal/sniff"
 )
 
 const (
@@ -226,7 +226,7 @@ func (p *Provider) Streams(ctx context.Context, showID string, ep domain.Episode
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		if errors.Is(err, browser.ErrNoBrowser) {
+		if errors.Is(err, sniff.ErrNoBrowser) {
 			return nil, fmt.Errorf("anikoto: %w", err) // no other server can work either
 		}
 		slog.Info("anikoto server failed", "server", srv.name, "err", err)

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +15,7 @@ import (
 	"github.com/go-rod/rod/lib/proto"
 
 	"github.com/EmoFa/tsuzuki/internal/procfs"
+	"github.com/EmoFa/tsuzuki/internal/sniff"
 )
 
 // Sniffer loads pages in a shared headless browser and reports the network
@@ -32,29 +32,12 @@ type Sniffer struct {
 	dir     string
 }
 
-// Match selects a request to capture.
-type Match struct {
-	Name string
-	URL  *regexp.Regexp
-	Body bool // also capture the response body
-}
-
-type SniffRequest struct {
-	URL     string
-	Referer string
-	Matches []Match
-	Timeout time.Duration // default 30s
-}
-
-type Captured struct {
-	URL    string
-	Status int
-	Body   []byte
-}
-
-// blockedURLs keep the page light: artwork, fonts and ad trackers aren't needed
-// to get a player to request its stream.
-var blockedURLs = []string{"*.png*", "*.jpg*", "*.jpeg*", "*.gif*", "*.webp*", "*.woff*", "*.ttf*", "*tiktokcdn*", "*doubleclick*", "*googlesyndication*"}
+// The request types live in package sniff, which the Android app shares.
+type (
+	Match        = sniff.Match
+	SniffRequest = sniff.Request
+	Captured     = sniff.Captured
+)
 
 // Sniff loads req.URL and waits until every match has been captured.
 func (s *Sniffer) Sniff(ctx context.Context, req SniffRequest) (map[string]Captured, error) {
@@ -86,7 +69,7 @@ func (s *Sniffer) Sniff(ctx context.Context, req SniffRequest) (map[string]Captu
 	if err := (proto.NetworkEnable{}).Call(page); err != nil {
 		return nil, err
 	}
-	_ = proto.NetworkSetBlockedURLs{Urls: blockedURLs}.Call(page)
+	_ = proto.NetworkSetBlockedURLs{Urls: sniff.BlockedURLs}.Call(page)
 
 	type inFlight struct {
 		match  Match

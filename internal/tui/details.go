@@ -17,10 +17,10 @@ import (
 	"github.com/EmoFa/tsuzuki/internal/anilist"
 	"github.com/EmoFa/tsuzuki/internal/config"
 	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/episodes"
 	"github.com/EmoFa/tsuzuki/internal/session"
 	"github.com/EmoFa/tsuzuki/internal/skip"
 	"github.com/EmoFa/tsuzuki/internal/store"
-	"github.com/EmoFa/tsuzuki/internal/tracker"
 )
 
 type detailsProgressMsg struct {
@@ -87,37 +87,34 @@ type detailsScreen struct {
 	media anilist.Media
 	mode  domain.Mode
 
-	progress    map[float64]store.Progress
+	// Show holds the episode history, list entry and episode details; its
+	// methods say which episodes are watched and which is next.
+	episodes.Show
 	progressSet bool
 	// numbers lists the episodes to show; titles/filler come from the
 	// provider when AniList doesn't know the episode count.
 	numbers         []float64
-	provEpisodes    map[float64]domain.Episode
 	loadingEpisodes bool
 	episodesErr     error
 	cursorPlaced    bool
 	list            list
 
-	entry         *store.ListEntry
 	pickingStatus bool
-	kinds         map[int]skip.EpisodeKind
 
-	round         int // watch-through, from 1
-	beforeThrough int // how far it had been watched when this round started
-	watchedBefore map[float64]bool
-	confirming    string // "rewatch" while asking
-	jumping       bool
-	jumpInput     textinput.Model
-	sequels       []anilist.Media
-	prequels      []anilist.Media
-	prefs         *store.ShowPrefs // nil: the show uses the config
-	editingSubs   bool
-	subsInput     textinput.Model
-	subsShow      bool
+	confirming  string // "rewatch" while asking
+	jumping     bool
+	jumpInput   textinput.Model
+	sequels     []anilist.Media
+	prequels    []anilist.Media
+	prefs       *store.ShowPrefs // nil: the show uses the config
+	editingSubs bool
+	subsInput   textinput.Model
+	subsShow    bool
 }
 
 func newDetails(ctx context.Context, svc Services, media anilist.Media, mode domain.Mode) *detailsScreen {
 	d := &detailsScreen{ctx: ctx, svc: svc, media: media, mode: modeOrDefault(mode, svc)}
+	d.Media = media
 	d.setNumbers()
 	return d
 }
@@ -278,7 +275,7 @@ func (d *detailsScreen) loadProgress() tea.Cmd {
 // needsProviderEpisodes: AniList doesn't say how many episodes have aired, so
 // ask a provider — unless the show hasn't started, when there's nothing to find.
 func (d *detailsScreen) needsProviderEpisodes() bool {
-	return d.media.AiredEpisodes() == 0 && !d.media.NotYetAired()
+	return episodes.NeedsProviderEpisodes(d.media)
 }
 
 func (d *detailsScreen) loadEpisodes() tea.Cmd {
@@ -351,24 +348,24 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 		if msg.err != nil {
 			return d, toast("Couldn't load progress: "+msg.err.Error(), true)
 		}
-		d.progress = map[float64]store.Progress{}
+		d.Progress = map[float64]store.Progress{}
 		for _, p := range msg.progress {
-			d.progress[p.Episode] = p
+			d.Progress[p.Episode] = p
 		}
 		d.progressSet = true
 		d.setNumbers()
 		if !d.cursorPlaced {
 			d.cursorPlaced = true
-			if i := slices.Index(d.numbers, d.nextUp()); i >= 0 {
+			if i := slices.Index(d.numbers, d.NextUp()); i >= 0 {
 				d.list.setCursor(i)
 			}
 		}
 
 	case detailsEntryMsg:
-		d.entry = msg.entry
+		d.Entry = msg.entry
 
 	case detailsKindsMsg:
-		d.kinds = msg.kinds
+		d.Kinds = msg.kinds
 
 	case detailsPrefsMsg:
 		d.prefs = msg.prefs
@@ -380,7 +377,7 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 		d.prequels = msg.prequels
 
 	case detailsRoundMsg:
-		d.round, d.beforeThrough, d.watchedBefore = msg.round, msg.through, msg.watched
+		d.Round, d.BeforeThrough, d.WatchedBefore = msg.round, msg.through, msg.watched
 
 	case detailsWatchedMsg:
 		if msg.err != nil {
@@ -411,9 +408,9 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 			return d, nil
 		}
 		d.loadingEpisodes, d.episodesErr = false, msg.err
-		d.provEpisodes = map[float64]domain.Episode{}
+		d.Provider = map[float64]domain.Episode{}
 		for _, e := range msg.episodes {
-			d.provEpisodes[e.Number] = e
+			d.Provider[e.Number] = e
 		}
 		d.setNumbers()
 
@@ -481,7 +478,7 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 			return d, d.jumpInput.Focus()
 		case key.Matches(msg, keyWatched) && len(d.numbers) > 0:
 			n := d.numbers[d.list.cursor]
-			return d, d.setWatched(n, n, !d.watched(n))
+			return d, d.setWatched(n, n, !d.Watched(n))
 		case key.Matches(msg, keyThrough) && len(d.numbers) > 0:
 			return d, d.setWatched(d.numbers[0], d.numbers[d.list.cursor], true)
 		case key.Matches(msg, keyRewatch):
@@ -499,7 +496,7 @@ func (d *detailsScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 			}
 			return d, watch(session.Request{Media: d.media, Episode: d.numbers[d.list.cursor], Mode: d.mode})
 		case key.Matches(msg, keyContinue):
-			return d, watch(session.Request{Media: d.media, Episode: d.nextUp(), Mode: d.mode})
+			return d, watch(session.Request{Media: d.media, Episode: d.NextUp(), Mode: d.mode})
 		case key.Matches(msg, keyMode):
 			if d.mode == domain.Sub {
 				d.mode = domain.Dub
@@ -525,78 +522,10 @@ func (d *detailsScreen) setStatus(status string) tea.Cmd {
 	}
 }
 
-// setNumbers rebuilds the episode list from AniList's aired count, the
-// provider's list, and any watched episodes beyond both.
+// setNumbers rebuilds the episode list.
 func (d *detailsScreen) setNumbers() {
-	seen := map[float64]bool{}
-	var nums []float64
-	add := func(n float64) {
-		if !seen[n] {
-			seen[n] = true
-			nums = append(nums, n)
-		}
-	}
-	for i := 1; i <= d.media.AiredEpisodes(); i++ {
-		add(float64(i))
-	}
-	for n := range d.provEpisodes {
-		add(n)
-	}
-	for n := range d.progress {
-		add(n)
-	}
-	slices.Sort(nums)
-	d.numbers = nums
-	d.list.setLen(len(nums))
-}
-
-// listWatchedThrough is how far the user's list says they've watched. Episodes
-// watched elsewhere show as watched here without inventing any history.
-func (d *detailsScreen) listWatchedThrough() float64 {
-	return float64(tracker.ListThrough(d.entry, d.media.Episodes, d.round))
-}
-
-// watched reports whether an episode shows as watched in this round, played
-// here or according to the list, which is what w toggles.
-func (d *detailsScreen) watched(n float64) bool {
-	if p, ok := d.progress[n]; ok && p.Completed {
-		return true
-	}
-	return n <= d.listWatchedThrough()
-}
-
-// started reports whether the show has been begun at all, here or on the
-// user's list, or is being rewatched: only then is an episode "next up".
-func (d *detailsScreen) started() bool {
-	return len(d.progress) > 0 || d.round > 1 || d.listWatchedThrough() > 0
-}
-
-// watchedEarlier reports an episode watched before this rewatch started: here
-// in an earlier round, or as far as the show had been watched at the time.
-func (d *detailsScreen) watchedEarlier(n float64) bool {
-	return d.round > 1 && (d.watchedBefore[n] || n <= float64(d.beforeThrough))
-}
-
-// nextUp is the episode "continue" plays: after the most recently watched one,
-// or after what the user's list has reached, whichever is further.
-func (d *detailsScreen) nextUp() float64 {
-	var latest *store.Progress
-	for _, p := range d.progress {
-		if latest == nil || p.UpdatedAt.After(latest.UpdatedAt) {
-			latest = &p
-		}
-	}
-	next := 1.0
-	switch {
-	case latest != nil:
-		next = nextEpisode(*latest)
-	case len(d.numbers) > 0:
-		next = d.numbers[0]
-	}
-	if fromList := d.listWatchedThrough() + 1; fromList > next {
-		next = fromList
-	}
-	return next
+	d.numbers = d.Numbers()
+	d.list.setLen(len(d.numbers))
 }
 
 func (d *detailsScreen) View(width, height int) string {
@@ -621,8 +550,8 @@ func (d *detailsScreen) View(width, height int) string {
 			opts = append(opts, styleKey.Render(fmt.Sprint(i+1))+" "+t.title)
 		}
 		b.WriteString(styleWarn.Render("Set list status: ") + truncate(strings.Join(opts, "  "), width-17) + "\n")
-	case d.entry != nil:
-		b.WriteString(styleGood.Render(truncate("On your list: "+entryLine(m, *d.entry), width)) + "\n")
+	case d.Entry != nil:
+		b.WriteString(styleGood.Render(truncate("On your list: "+entryLine(m, *d.Entry), width)) + "\n")
 	default:
 		b.WriteString(styleMuted.Render("Not on your list · l to add") + "\n")
 	}
@@ -639,16 +568,16 @@ func (d *detailsScreen) View(width, height int) string {
 		b.WriteString("\n" + clampLines(wrapped, 4) + "\n")
 	}
 
-	next := d.nextUp()
+	next := d.NextUp()
 	header := fmt.Sprintf("Episodes (%s)", d.mode)
-	if d.round > 1 {
-		header += fmt.Sprintf("  ·  rewatch, round %d", d.round)
+	if d.Round > 1 {
+		header += fmt.Sprintf("  ·  rewatch, round %d", d.Round)
 	}
 	if d.jumping {
 		d.jumpInput.SetWidth(8)
 		header += styleMuted.Render("  ·  ") + styleWarn.Render("jump to episode: ") + d.jumpInput.View()
 	}
-	if d.progressSet && len(d.progress) > 0 {
+	if d.progressSet && len(d.Progress) > 0 {
 		header += styleMuted.Render(fmt.Sprintf("  ·  c continues with episode %s", episodeLabel(next)))
 	}
 	b.WriteString(styleSection.Render(header) + "\n")
@@ -662,7 +591,7 @@ func (d *detailsScreen) View(width, height int) string {
 		return b.String()
 	case len(d.numbers) == 0 && d.media.NotYetAired():
 		b.WriteString(styleMuted.Render("Hasn't aired yet · " + d.media.PremiereLabel(time.Now())))
-		if d.entry == nil {
+		if d.Entry == nil {
 			b.WriteString("\n" + styleMuted.Render("Press l to add it to your Planning list."))
 		}
 		return b.String()
@@ -680,38 +609,33 @@ func (d *detailsScreen) View(width, height int) string {
 }
 
 func (d *detailsScreen) episodeRow(i int, next float64, width int) string {
-	n := d.numbers[i]
-	name := "Episode " + episodeLabel(n)
-	if e, ok := d.provEpisodes[n]; ok && e.Title != "" {
-		name += " · " + e.Title
+	r := d.Row(d.numbers[i], next, d.progressSet)
+	name := "Episode " + episodeLabel(r.Number)
+	if r.Title != "" {
+		name += " · " + r.Title
 	}
 
-	var mark, detail string
-	markStyle := styleMuted
-	if p, ok := d.progress[n]; ok && p.Completed {
+	var detail string
+	mark, markStyle := " ", styleMuted
+	switch r.State {
+	case episodes.Done, episodes.OnList:
 		mark, markStyle = "✓", styleGood
-	} else if ok && p.Duration > 0 {
+	case episodes.Partial:
 		mark, markStyle = "◐", styleWarn
-		detail = fmt.Sprintf("%s / %s", clock(p.Position), clock(p.Duration))
-	} else if n == next && d.progressSet && d.started() {
+		detail = fmt.Sprintf("%s / %s", clock(r.Position), clock(r.Duration))
+	case episodes.Next:
 		mark, markStyle = "▶", styleInfo
 		detail = "next"
-	} else if n <= d.listWatchedThrough() {
-		// Watched according to the user's list, though not played here.
-		mark, markStyle = "✓", styleGood
-	} else if d.watchedEarlier(n) {
+	case episodes.Earlier:
 		// Watched before this rewatch: dim, so the rewatch's own progress stands out.
-		mark, markStyle = "✓", styleMuted
-	} else {
-		mark = " "
+		mark = "✓"
 	}
-	e, fromProvider := d.provEpisodes[n]
-	switch kind := d.kinds[int(n)]; {
-	case kind == skip.Filler || (fromProvider && e.Filler):
+	switch r.Kind {
+	case "filler":
 		detail = strings.TrimSpace(detail + " " + styleWarn.Render("filler"))
-	case kind == skip.Mixed:
+	case "mixed":
 		detail = strings.TrimSpace(detail + " mixed canon/filler")
-	case fromProvider && e.Recap:
+	case "recap":
 		detail = strings.TrimSpace(detail + " " + styleWarn.Render("recap"))
 	}
 

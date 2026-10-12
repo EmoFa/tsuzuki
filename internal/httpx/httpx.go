@@ -116,6 +116,14 @@ type Client struct {
 	solving    map[string]*solveCall
 }
 
+// ForgetClearances drops the clearances held in memory, so the next request
+// to each host reads the store again. For after clearances are deleted there.
+func (c *Client) ForgetClearances() {
+	c.mu.Lock()
+	clear(c.clearances)
+	c.mu.Unlock()
+}
+
 type solveCall struct {
 	done chan struct{}
 	err  error

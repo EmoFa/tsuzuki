@@ -2,27 +2,14 @@ package cli
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"log/slog"
 
-	"github.com/EmoFa/tsuzuki/internal/anilist"
 	"github.com/EmoFa/tsuzuki/internal/buildinfo"
-	"github.com/EmoFa/tsuzuki/internal/domain"
-	"github.com/EmoFa/tsuzuki/internal/session"
-	"github.com/EmoFa/tsuzuki/internal/skip"
-	"github.com/EmoFa/tsuzuki/internal/store"
 	"github.com/EmoFa/tsuzuki/internal/tui"
 )
 
 // runTUI starts the full-screen interface.
 func runTUI(ctx context.Context, app *App) error {
-	st, err := app.Store(ctx)
-	if err != nil {
-		return err
-	}
-	al, err := app.AniList(ctx)
-	if err != nil {
+	if _, err := app.AniList(ctx); err != nil {
 		return err
 	}
 	// Store, HTTP client, AniList and mapper are built once here, before the
@@ -38,178 +25,52 @@ func runTUI(ctx context.Context, app *App) error {
 	// and notify never blocks.
 	notices := make(chan string, 8)
 	app.notices = notices
-	return tui.Run(ctx, &tuiServices{app: app, store: st, anilist: al}, notices)
+	return tui.Run(ctx, &tuiServices{App: app}, notices)
 }
 
-// tuiServices adapts the app to what the TUI needs.
+// tuiServices adapts the app to what the TUI needs. Most of it is the shared
+// core; the rest converts to the TUI's types or is terminal-only.
 type tuiServices struct {
-	app     *App
-	store   *store.Store
-	anilist *anilist.Client
+	*App
 }
 
-func (s *tuiServices) Search(ctx context.Context, query string) ([]anilist.Media, error) {
-	return s.anilist.Search(ctx, query, 25)
-}
-
-func (s *tuiServices) Browse(ctx context.Context, q anilist.BrowseQuery) (anilist.BrowsePage, error) {
-	return s.anilist.Browse(ctx, q)
-}
-
-func (s *tuiServices) Genres(ctx context.Context) ([]string, error) {
-	return s.anilist.Genres(ctx)
-}
-
-func (s *tuiServices) Media(ctx context.Context, id int) (anilist.Media, error) {
-	return s.anilist.Media(ctx, id)
-}
-
-func (s *tuiServices) RecentShows(ctx context.Context, limit int) ([]store.Progress, error) {
-	return s.store.RecentShows(ctx, limit)
-}
-
-func (s *tuiServices) ShowProgress(ctx context.Context, mediaID int) ([]store.Progress, error) {
-	return s.store.ShowProgress(ctx, mediaID)
-}
-
-func (s *tuiServices) ProviderEpisodes(ctx context.Context, media anilist.Media, mode domain.Mode) ([]domain.Episode, error) {
-	reg, err := s.app.Providers(ctx)
-	if err != nil {
-		return nil, err
-	}
-	mapper, err := s.app.Mapper(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var errs []error
-	for _, name := range s.app.Config.ActiveProviders() {
-		p, err := reg.Get(name)
-		if err != nil {
-			continue
-		}
-		show, err := mapper.Resolve(ctx, p, media, mode)
-		if err == nil {
-			var eps []domain.Episode
-			if eps, err = p.Episodes(ctx, show.ID, mode); err == nil && len(eps) > 0 {
-				return eps, nil
-			}
-		}
-		if err != nil {
-			errs = append(errs, err)
-		}
-	}
-	return nil, fmt.Errorf("no provider lists episodes for %s: %w", media.DisplayTitle(), errors.Join(errs...))
-}
-
-func (s *tuiServices) Watch(ctx context.Context, req session.Request, onStatus func(session.Status)) error {
-	// A session per watch keeps each watch's status callback separate.
-	sess, err := s.app.Session(ctx, onStatus)
-	if err != nil {
-		return err
-	}
-	return sess.Watch(ctx, req)
-}
-
-func (s *tuiServices) ListEntries(ctx context.Context, status string) ([]store.ListEntry, error) {
-	return s.store.ListEntries(ctx, status)
-}
-
-func (s *tuiServices) ListEntry(ctx context.Context, mediaID int) (*store.ListEntry, error) {
-	return s.store.ListEntry(ctx, mediaID)
-}
-
-func (s *tuiServices) SetListStatus(ctx context.Context, mediaID int, status string) (string, error) {
-	t, err := s.app.Tracker(ctx)
-	if err != nil {
-		return "", err
-	}
-	r, err := t.SetStatus(ctx, mediaID, status)
-	if err != nil {
-		return "", err
-	}
-	label := StatusLabel(r.Entry.Status)
-	switch {
-	case !r.Changed:
-		return "Already " + label + ".", nil
-	case r.Synced:
-		return "Set to " + label + " on AniList.", nil
-	case r.SyncErr != nil:
-		return "Set to " + label + "; AniList sync pending: " + firstLineOf(r.SyncErr.Error()), nil
-	}
-	return "Set to " + label + ".", nil
-}
-
-func (s *tuiServices) Account() tui.Account {
-	a := tui.Account{Backend: s.app.Config.Tracking.Backend}
-	if tok, err := s.app.tokenFile().Load(); err == nil && tok != nil {
-		a.User = tok.UserName
-		a.LoggedIn = tok.Valid()
-		a.Expired = !tok.Valid()
-	}
-	return a
-}
+func (s *tuiServices) Account() tui.Account { return tui.Account(s.App.Account()) }
 
 func (s *tuiServices) Login(ctx context.Context) (string, error) {
-	return login(ctx, s.app, func(url string) {
-		s.app.notify("If your browser didn't open, visit " + url)
+	return s.App.Login(ctx, func(url string) {
+		s.notify("If your browser didn't open, visit " + url)
 	})
-}
-
-func (s *tuiServices) Sync(ctx context.Context) (string, error) {
-	return syncList(ctx, s.app)
-}
-
-func (s *tuiServices) EpisodeKinds(ctx context.Context, media anilist.Media) (map[int]skip.EpisodeKind, error) {
-	client, err := s.app.HTTP(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return s.app.FillerList(client, s.store).Kinds(ctx, media)
 }
 
 func (s *tuiServices) Settings() tui.Settings {
 	return tui.Settings{
 		Version:    buildinfo.Version,
-		Config:     s.app.Config,
-		ConfigPath: s.app.ConfigPath,
-		DataDir:    s.app.Paths.DataDir,
-		CacheDir:   s.app.Paths.CacheDir,
+		Config:     s.Config,
+		ConfigPath: s.ConfigPath,
+		DataDir:    s.Paths.DataDir,
+		CacheDir:   s.Paths.CacheDir,
 	}
-}
-
-func (s *tuiServices) ShowPrefs(ctx context.Context, mediaID int) (*store.ShowPrefs, error) {
-	return s.store.ShowPrefs(ctx, mediaID)
-}
-
-func (s *tuiServices) SaveShowPrefs(ctx context.Context, p store.ShowPrefs) error {
-	return s.store.SaveShowPrefs(ctx, p)
-}
-
-func (s *tuiServices) DeleteShowPrefs(ctx context.Context, mediaID int) error {
-	return s.store.DeleteShowPrefs(ctx, mediaID)
 }
 
 func (s *tuiServices) CheckUpdate(ctx context.Context, firstNotice bool) (tui.Update, error) {
-	if !s.app.Config.General.CheckUpdates {
+	if !s.Config.General.CheckUpdates {
 		return tui.Update{}, nil
 	}
-	client, err := s.app.HTTP(ctx)
+	client, err := s.HTTP(ctx)
 	if err != nil {
 		return tui.Update{}, err
 	}
-	st, err := s.app.CheckUpdate(ctx, client, s.store)
+	store, err := s.Store(ctx)
+	if err != nil {
+		return tui.Update{}, err
+	}
+	st, err := s.App.CheckUpdate(ctx, client, store)
 	u := tui.Update{Current: st.Current, Latest: st.Latest, Available: st.Available, Dev: st.Dev,
 		SelfUpgrade: st.SelfUpgrade, Command: st.Command}
 	if err != nil || !u.Available || !firstNotice {
 		return u, err
 	}
-	const notifiedKey = "update:notified"
-	if last, _, ok, _ := s.store.GetKV(ctx, notifiedKey); !ok || last != u.Latest {
-		u.Notify = true
-		if err := s.store.PutKV(ctx, notifiedKey, u.Latest); err != nil {
-			slog.Warn("remembering update notice", "err", err)
-		}
-	}
+	u.Notify = s.FirstNotice(ctx, u.Latest)
 	return u, nil
 }
 
@@ -217,78 +78,10 @@ func (s *tuiServices) Upgrade(ctx context.Context) (string, error) {
 	return upgradeNote(ctx)
 }
 
-func (s *tuiServices) SetScore(ctx context.Context, mediaID int, score float64) (string, error) {
-	t, err := s.app.Tracker(ctx)
-	if err != nil {
-		return "", err
-	}
-	r, err := t.SetScore(ctx, mediaID, score)
-	if err != nil {
-		return "", err
-	}
-	return scoreNote(r), nil
-}
-
-func (s *tuiServices) Sequels(ctx context.Context, mediaID int) ([]anilist.Media, error) {
-	rels, err := s.anilist.Relations(ctx, mediaID)
-	if err != nil {
-		return nil, err
-	}
-	return anilist.Sequels(rels), nil
-}
-
-func (s *tuiServices) Prequels(ctx context.Context, mediaID int) ([]anilist.Media, error) {
-	// Relations are cached, so asking twice for one show costs one request.
-	rels, err := s.anilist.Relations(ctx, mediaID)
-	if err != nil {
-		return nil, err
-	}
-	return anilist.Prequels(rels), nil
-}
-
 func (s *tuiServices) StartRewatch(ctx context.Context, mediaID int) (string, error) {
-	st, err := s.app.Store(ctx)
+	rw, err := s.App.StartRewatch(ctx, mediaID)
 	if err != nil {
 		return "", err
 	}
-	media, err := s.anilist.Media(ctx, mediaID)
-	if err != nil {
-		return "", err
-	}
-	through, err := watchedThrough(ctx, s.app, media)
-	if err != nil {
-		return "", err
-	}
-	round, err := st.StartRound(ctx, mediaID, through)
-	if err != nil {
-		return "", err
-	}
-	t, err := s.app.Tracker(ctx)
-	if err != nil {
-		return "", err
-	}
-	r, err := t.StartRewatch(ctx, mediaID)
-	if err != nil {
-		return "", err
-	}
-	note := fmt.Sprintf("Rewatch started (round %d)", round)
-	switch {
-	case r.Synced:
-		return note + "; AniList set to rewatching.", nil
-	case r.SyncErr != nil:
-		return note + "; AniList sync pending: " + firstLineOf(r.SyncErr.Error()), nil
-	}
-	return note + ".", nil
-}
-
-func (s *tuiServices) WatchedBefore(ctx context.Context, mediaID int) (map[float64]bool, error) {
-	return s.store.WatchedBefore(ctx, mediaID)
-}
-
-func (s *tuiServices) Round(ctx context.Context, mediaID int) (round, watchedBefore int, err error) {
-	return s.store.RoundInfo(ctx, mediaID)
-}
-
-func (s *tuiServices) SetWatched(ctx context.Context, media anilist.Media, from, to float64, watched bool) (string, error) {
-	return setWatched(ctx, s.app, media, from, to, watched)
+	return rw.Note(), nil
 }

@@ -2,46 +2,23 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
-	"time"
 
-	"github.com/EmoFa/tsuzuki/internal/anilist"
-	"github.com/EmoFa/tsuzuki/internal/auth"
 	"github.com/EmoFa/tsuzuki/internal/browser"
 	"github.com/EmoFa/tsuzuki/internal/buildinfo"
 	"github.com/EmoFa/tsuzuki/internal/discord"
-	"github.com/EmoFa/tsuzuki/internal/domain"
 	"github.com/EmoFa/tsuzuki/internal/httpx"
-	"github.com/EmoFa/tsuzuki/internal/mapping"
 	"github.com/EmoFa/tsuzuki/internal/player"
-	"github.com/EmoFa/tsuzuki/internal/provider"
-	"github.com/EmoFa/tsuzuki/internal/provider/anikoto"
-	"github.com/EmoFa/tsuzuki/internal/provider/animepahe"
-	"github.com/EmoFa/tsuzuki/internal/provider/kickassanime"
-	"github.com/EmoFa/tsuzuki/internal/provider/senshi"
 	"github.com/EmoFa/tsuzuki/internal/session"
-	"github.com/EmoFa/tsuzuki/internal/skip"
-	"github.com/EmoFa/tsuzuki/internal/streamcheck"
-	"github.com/EmoFa/tsuzuki/internal/streamproxy"
-	"github.com/EmoFa/tsuzuki/internal/tracker"
 	"github.com/EmoFa/tsuzuki/internal/update"
 )
 
-// HTTP returns the shared scraping client, with browser-based challenge solving
-// and clearances persisted in the database.
-func (a *App) HTTP(ctx context.Context) (*httpx.Client, error) {
-	if a.http != nil {
-		return a.http, nil
-	}
-	st, err := a.Store(ctx)
-	if err != nil {
-		return nil, err
-	}
-	solver := &browser.Solver{
+// solver gets past bot challenges with a desktop Chrome, sharing a persistent
+// profile so clearances survive restarts.
+func (a *App) solver() httpx.Solver {
+	return &browser.Solver{
 		BinPath:      a.Config.Browser.Path,
 		ProfileDir:   a.browserProfileDir(),
 		AutoDownload: a.Config.Browser.AutoDownload,
@@ -49,8 +26,6 @@ func (a *App) HTTP(ctx context.Context) (*httpx.Client, error) {
 		Headless:     a.Config.Browser.Headless,
 		Notify:       a.notify,
 	}
-	a.http = httpx.New(httpx.Options{Solver: solver, Store: st})
-	return a.http, nil
 }
 
 // browserProfileDir holds the solver's persistent browser profile.
@@ -58,187 +33,10 @@ func (a *App) browserProfileDir() string {
 	return filepath.Join(a.Paths.DataDir, "browser-profile")
 }
 
-// Providers returns every implemented provider.
-func (a *App) Providers(ctx context.Context) (*provider.Registry, error) {
-	client, err := a.HTTP(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return a.newRegistry(client), nil
-}
-
-// newRegistry builds every provider on client.
-func (a *App) newRegistry(client *httpx.Client) *provider.Registry {
-	return provider.NewRegistry(
-		anikoto.New(client, a.Sniffer(), ""),
-		senshi.New(client, "", ""),
-		animepahe.New(client, ""),
-		kickassanime.New(client, ""),
-	)
-}
-
-// AniList returns the AniList client, caching media details in the database.
-func (a *App) AniList(ctx context.Context) (*anilist.Client, error) {
-	if a.anilist != nil {
-		return a.anilist, nil
-	}
-	client, err := a.HTTP(ctx)
-	if err != nil {
-		return nil, err
-	}
-	st, err := a.Store(ctx)
-	if err != nil {
-		return nil, err
-	}
-	a.anilist = anilist.New(client, st)
-	// Development only: point at a fake AniList to test syncing without an account.
-	if u := os.Getenv("TSUZUKI_ANILIST_API"); u != "" {
-		a.anilist = a.anilist.WithURL(u)
-	}
-	return a.anilist, nil
-}
-
-// Mapper returns the shared AniList-to-provider show mapper.
-func (a *App) Mapper(ctx context.Context) (*mapping.Mapper, error) {
-	if a.mapper == nil {
-		st, err := a.Store(ctx)
-		if err != nil {
-			return nil, err
-		}
-		a.mapper = mapping.New(st)
-	}
-	return a.mapper, nil
-}
-
-// DefaultAniListClientID is tsuzuki's registered AniList API client, whose
-// redirect URL is auth.RedirectURL. tracking.anilist_client_id overrides it.
-const DefaultAniListClientID = 51172
-
-func (a *App) aniListClientID() int {
-	if id := a.Config.Tracking.AnilistClientID; id != 0 {
-		return id
-	}
-	return DefaultAniListClientID
-}
-
-func (a *App) tokenFile() auth.TokenFile {
-	return auth.TokenFile{Path: filepath.Join(a.Paths.ConfigDir, "anilist-token.json")}
-}
-
-// Tracker returns the list tracker, syncing to AniList when the backend is
-// "anilist" and the user is logged in.
-func (a *App) Tracker(ctx context.Context) (*tracker.Tracker, error) {
-	a.lazyMu.Lock()
-	defer a.lazyMu.Unlock()
-	if a.tracker != nil {
-		return a.tracker, nil
-	}
-	st, err := a.Store(ctx)
-	if err != nil {
-		return nil, err
-	}
-	t := &tracker.Tracker{Store: st}
-	if a.Config.Tracking.Backend == "anilist" {
-		tok, err := a.tokenFile().Load()
-		if err != nil {
-			return nil, err
-		}
-		if tok.Valid() {
-			al, err := a.AniList(ctx)
-			if err != nil {
-				return nil, err
-			}
-			t.Remote = tracker.AniListRemote{Client: al.WithToken(tok.AccessToken), UserID: tok.UserID}
-		}
-	}
-	a.tracker = t
-	return t, nil
-}
-
-// FillerList returns the animefillerlist.com client.
-func (a *App) FillerList(client *httpx.Client, cache skip.Cache) *skip.FillerList {
-	return &skip.FillerList{Client: client, Cache: cache}
-}
-
-// aniSkipLookup adapts AniSkip to the session's SkipRanges hook.
-type aniSkipLookup struct{ *skip.AniSkip }
-
-func (l aniSkipLookup) ranges(ctx context.Context, media anilist.Media, episode float64, length time.Duration) ([]domain.SkipRange, error) {
-	if episode != math.Floor(episode) {
-		return nil, nil // AniSkip only knows whole episodes
-	}
-	return l.Ranges(ctx, media.IDMal, int(episode), length)
-}
-
-// trackWatched is the session's OnWatched hook.
-func (a *App) trackWatched(ctx context.Context, media anilist.Media, episode float64) (string, error) {
-	t, err := a.Tracker(ctx)
-	if err != nil {
-		return "", err
-	}
-	r, err := t.EpisodeWatched(ctx, media, episode)
-	if err != nil {
-		return "", err
-	}
-	if errors.Is(r.SyncErr, anilist.ErrUnauthorized) {
-		return "list updated; AniList login expired, run `tsuzuki login` to sync", nil
-	}
-	return r.Note(), nil
-}
-
-// Session builds a watch session wired to the real player, providers and store.
-func (a *App) Session(ctx context.Context, onStatus func(session.Status)) (*session.Session, error) {
-	st, err := a.Store(ctx)
-	if err != nil {
-		return nil, err
-	}
-	reg, err := a.Providers(ctx)
-	if err != nil {
-		return nil, err
-	}
-	mapper, err := a.Mapper(ctx)
-	if err != nil {
-		return nil, err
-	}
-	client, err := a.HTTP(ctx)
-	if err != nil {
-		return nil, err
-	}
-	checker := &streamcheck.Checker{Client: client}
-	aniskip := aniSkipLookup{&skip.AniSkip{Client: client, Cache: st}}
-	cfg := a.Config
-	mpv := player.New(player.Options{MpvPath: cfg.Player.MpvPath, ExtraArgs: cfg.Player.ExtraArgs})
-	return session.New(session.Deps{
-		Settings: session.Settings{
-			ProviderOrder:    cfg.ActiveProviders(),
-			Quality:          cfg.General.Quality,
-			AutoplayNext:     cfg.General.AutoplayNext,
-			WatchedThreshold: cfg.General.WatchedThreshold,
-			ResumeRewind:     time.Duration(cfg.General.ResumeRewindSeconds) * time.Second,
-			CheckTimeout:     cfg.Providers.HealthCheckTimeout.Duration,
-			SkipActions: map[domain.SkipKind]string{
-				domain.SkipOpening: cfg.Skip.Opening,
-				domain.SkipEnding:  cfg.Skip.Ending,
-				domain.SkipRecap:   cfg.Skip.Recap,
-			},
-			SkipFillerEpisodes: cfg.Skip.FillerEpisodes,
-			SkipRecapEpisodes:  cfg.Skip.RecapEpisodes,
-			Subtitles:          a.subtitlePrefs(),
-		},
-		Providers: reg,
-		Resolver:  mapper,
-		Progress:  st,
-		Play: func(ctx context.Context, req player.Request) (session.Playback, error) {
-			return mpv.Play(ctx, req)
-		},
-		Proxy:        func() (session.Proxy, error) { return a.StreamProxy() },
-		Check:        checker.Check,
-		OnWatched:    a.trackWatched,
-		SkipRanges:   aniskip.ranges,
-		EpisodeKinds: a.FillerList(client, st).Kinds,
-		ShowPrefs:    st.ShowPrefs,
-		OnStatus:     a.withPresence(onStatus),
-	}), nil
+// play starts mpv.
+func (a *App) play(ctx context.Context, req player.Request) (session.Playback, error) {
+	mpv := player.New(player.Options{MpvPath: a.Config.Player.MpvPath, ExtraArgs: a.Config.Player.ExtraArgs})
+	return mpv.Play(ctx, req)
 }
 
 // DefaultDiscordClientID is tsuzuki's Discord application, whose name Discord
@@ -300,22 +98,6 @@ func (a *App) Sniffer() *browser.Sniffer {
 	return a.sniffer
 }
 
-// StreamProxy starts the local stream proxy on first use.
-func (a *App) StreamProxy() (*streamproxy.Proxy, error) {
-	a.lazyMu.Lock()
-	defer a.lazyMu.Unlock()
-	if a.proxy != nil {
-		return a.proxy, nil
-	}
-	// No overall timeout: the proxy streams long bodies.
-	p, err := streamproxy.Start(httpx.New(httpx.Options{Timeout: -1}))
-	if err != nil {
-		return nil, err
-	}
-	a.proxy = p
-	return p, nil
-}
-
 // notify surfaces a message that needs the user's attention: inside the TUI
 // when it is running, otherwise on stderr.
 func (a *App) notify(msg string) {
@@ -327,10 +109,6 @@ func (a *App) notify(msg string) {
 		return
 	}
 	fmt.Fprintln(os.Stderr, "»", msg)
-}
-
-func (a *App) subtitlePrefs() domain.SubtitlePrefs {
-	return domain.SubtitlePrefs{Languages: a.Config.Subtitles.Languages, Show: a.Config.Subtitles.Show}
 }
 
 // UpdateStatus describes the latest release compared with this build.

@@ -12,17 +12,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/EmoFa/tsuzuki/internal/anilist"
 	"github.com/EmoFa/tsuzuki/internal/browser"
 	"github.com/EmoFa/tsuzuki/internal/buildinfo"
 	"github.com/EmoFa/tsuzuki/internal/config"
+	"github.com/EmoFa/tsuzuki/internal/core"
 	"github.com/EmoFa/tsuzuki/internal/discord"
+	"github.com/EmoFa/tsuzuki/internal/extractor"
 	"github.com/EmoFa/tsuzuki/internal/httpx"
 	"github.com/EmoFa/tsuzuki/internal/logx"
-	"github.com/EmoFa/tsuzuki/internal/mapping"
-	"github.com/EmoFa/tsuzuki/internal/store"
-	"github.com/EmoFa/tsuzuki/internal/streamproxy"
-	"github.com/EmoFa/tsuzuki/internal/tracker"
 	"github.com/EmoFa/tsuzuki/internal/update"
 )
 
@@ -30,38 +27,33 @@ import (
 // is invalid (e.g. so the user can fix it with `config edit`).
 const skipConfigAnnotation = "tsuzuki/skip-config"
 
-// App is the shared state handed to every command.
+// App is the shared state handed to every command: tsuzuki's services, plus
+// what only the terminal has (a desktop browser, mpv, Discord, the log file).
 type App struct {
-	Paths      config.Paths
-	ConfigPath string
-	Config     config.Config
+	*core.App
 
-	store   *store.Store
-	http    *httpx.Client
-	anilist *anilist.Client
-	proxy   *streamproxy.Proxy
 	sniffer *browser.Sniffer
-	mapper  *mapping.Mapper
 	// lazyMu guards the lazily built services below. The TUI calls them from
-	// several goroutines, and login replaces the tracker.
+	// several goroutines.
 	lazyMu    sync.Mutex
-	tracker   *tracker.Tracker
 	presence  *discord.Presence
 	notices   chan<- string // set while the TUI runs
 	updateURL string        // where to look for releases; empty means GitHub
 	closeLogs func() error
 }
 
-// Store opens the database on first use.
-func (a *App) Store(ctx context.Context) (*store.Store, error) {
-	if a.store == nil {
-		s, err := store.Open(ctx, a.Paths.Database())
-		if err != nil {
-			return nil, err
-		}
-		a.store = s
+// newApp builds an App with the terminal's platform pieces.
+func newApp() *App {
+	app := &App{App: &core.App{}}
+	app.Platform = core.Platform{
+		Solver:      app.solver,
+		Sniffer:     func() extractor.Sniffer { return app.Sniffer() },
+		Play:        app.play,
+		WatchStatus: app.withPresence,
 	}
-	return a.store, nil
+	// Development only: point at a fake AniList to test syncing without an account.
+	app.AniListURL = os.Getenv("TSUZUKI_ANILIST_API")
+	return app
 }
 
 func (a *App) Close() {
@@ -74,19 +66,14 @@ func (a *App) Close() {
 	if a.sniffer != nil {
 		a.sniffer.Close()
 	}
-	if a.proxy != nil {
-		a.proxy.Close()
-	}
-	if a.store != nil {
-		a.store.Close()
-	}
+	a.App.Close()
 	if a.closeLogs != nil {
 		a.closeLogs() //nolint:errcheck // nowhere left to report it
 	}
 }
 
 func NewRootCmd() (*cobra.Command, *App) {
-	app := &App{}
+	app := newApp()
 	var debug bool
 
 	root := &cobra.Command{

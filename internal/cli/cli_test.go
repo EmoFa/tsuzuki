@@ -14,7 +14,6 @@ import (
 	"github.com/EmoFa/tsuzuki/internal/anilist"
 	"github.com/EmoFa/tsuzuki/internal/buildinfo"
 	"github.com/EmoFa/tsuzuki/internal/config"
-	"github.com/EmoFa/tsuzuki/internal/httpx"
 	"github.com/EmoFa/tsuzuki/internal/store"
 	"github.com/EmoFa/tsuzuki/internal/tracker"
 	"github.com/EmoFa/tsuzuki/internal/update"
@@ -30,13 +29,22 @@ var frieren = anilist.Media{
 func testApp(t *testing.T) *App {
 	t.Helper()
 	dir := t.TempDir()
-	st, err := store.Open(t.Context(), filepath.Join(dir, "tsuzuki.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
+	app := newApp()
+	app.Config = config.Default()
+	app.Paths = config.Paths{ConfigDir: dir, DataDir: dir, CacheDir: dir}
+	app.ConfigPath = filepath.Join(dir, "config.toml")
+	app.AniListURL = fakeAniList(t, frieren)
+	t.Cleanup(app.Close)
+	return app
+}
 
-	media := map[int]anilist.Media{frieren.ID: frieren}
+// fakeAniList answers media lookups for the given shows.
+func fakeAniList(t *testing.T, shows ...anilist.Media) string {
+	t.Helper()
+	media := map[int]anilist.Media{}
+	for _, m := range shows {
+		media[m.ID] = m
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Variables struct {
@@ -52,130 +60,25 @@ func testApp(t *testing.T) *App {
 		json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"Media": m}})
 	}))
 	t.Cleanup(srv.Close)
+	return srv.URL
+}
 
-	app := &App{
-		Config:     config.Default(),
-		Paths:      config.Paths{ConfigDir: dir, DataDir: dir, CacheDir: dir},
-		ConfigPath: filepath.Join(dir, "config.toml"),
+func testStore(t *testing.T, app *App) *store.Store {
+	t.Helper()
+	st, err := app.Store(t.Context())
+	if err != nil {
+		t.Fatal(err)
 	}
-	app.store = st
-	app.http = httpx.New(httpx.Options{Retries: -1})
-	app.anilist = anilist.New(app.http, st).WithURL(srv.URL)
-	// No remote: the list stays local, as it does before logging in.
-	app.tracker = &tracker.Tracker{Store: st}
-	return app
+	return st
 }
 
 func listEntry(t *testing.T, app *App, mediaID int) *store.ListEntry {
 	t.Helper()
-	e, err := app.store.ListEntry(t.Context(), mediaID)
+	e, err := app.ListEntry(t.Context(), mediaID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return e
-}
-
-// A list holds one progress number, so it can only follow marks as far as an
-// unbroken run from the first episode reaches — in both directions.
-func TestSetWatchedKeepsTheListInStep(t *testing.T) {
-	app := testApp(t)
-	ctx := t.Context()
-	short := frieren
-	short.Episodes = 12
-
-	// An episode on its own says nothing about the ones before it.
-	note, err := setWatched(ctx, app, short, 5, 5, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(note, "episodes 1–4 aren't watched") {
-		t.Errorf("note = %q", note)
-	}
-	if e := listEntry(t, app, short.ID); e != nil {
-		t.Errorf("marking one episode put %+v on the list", e)
-	}
-
-	// Filling the gap moves the list to the end of the run.
-	if _, err := setWatched(ctx, app, short, 1, 4, true); err != nil {
-		t.Fatal(err)
-	}
-	if e := listEntry(t, app, short.ID); e == nil || e.Progress != 5 || e.Status != tracker.Current {
-		t.Fatalf("after filling the gap: %+v", e)
-	}
-
-	// Finishing it completes the show.
-	if _, err := setWatched(ctx, app, short, 6, 12, true); err != nil {
-		t.Fatal(err)
-	}
-	if e := listEntry(t, app, short.ID); e == nil || e.Progress != 12 || e.Status != tracker.Completed {
-		t.Fatalf("after the last episode: %+v", e)
-	}
-
-	// Unmarking pulls the list back to just before that episode, and a
-	// finished show becomes one being watched again.
-	note, err = setWatched(ctx, app, short, 12, 12, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(note, "11 episodes watched") {
-		t.Errorf("note = %q", note)
-	}
-	if e := listEntry(t, app, short.ID); e == nil || e.Progress != 11 || e.Status != tracker.Current {
-		t.Fatalf("after unmarking the last episode: %+v", e)
-	}
-
-	// A hole in the middle stops the run there, however much is watched above.
-	if _, err := setWatched(ctx, app, short, 3, 3, false); err != nil {
-		t.Fatal(err)
-	}
-	if e := listEntry(t, app, short.ID); e == nil || e.Progress != 2 {
-		t.Fatalf("after unmarking episode 3: %+v", e)
-	}
-	// The episodes above the hole are still watched here.
-	progress, err := app.store.ShowProgress(ctx, short.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	watched := map[float64]bool{}
-	for _, p := range progress {
-		watched[p.Episode] = p.Completed
-	}
-	if !watched[11] || watched[3] || watched[12] {
-		t.Errorf("history after unmarking 3 and 12: %v", watched)
-	}
-}
-
-// watchedThrough is the snapshot a rewatch keeps, so earlier episodes still
-// show as watched.
-func TestWatchedThroughTakesTheFurtherOfTheTwo(t *testing.T) {
-	app := testApp(t)
-	ctx := t.Context()
-
-	if got, err := watchedThrough(ctx, app, frieren); err != nil || got != 0 {
-		t.Fatalf("nothing watched: %d, %v", got, err)
-	}
-	if _, err := setWatched(ctx, app, frieren, 1, 3, true); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := watchedThrough(ctx, app, frieren); got != 3 {
-		t.Errorf("after watching three episodes: %d", got)
-	}
-
-	// A list further along than this machine's history wins.
-	if _, err := app.tracker.SetProgress(ctx, frieren, 20); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := watchedThrough(ctx, app, frieren); got != 20 {
-		t.Errorf("with the list at 20: %d", got)
-	}
-
-	// A completed show counts as watched through the last episode.
-	if _, err := app.tracker.SetStatus(ctx, frieren.ID, tracker.Completed); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := watchedThrough(ctx, app, frieren); got != frieren.Episodes {
-		t.Errorf("completed: %d, want %d", got, frieren.Episodes)
-	}
 }
 
 func TestEpisodeRangeArg(t *testing.T) {
@@ -247,29 +150,6 @@ func TestMarkCommand(t *testing.T) {
 	cmd.SetArgs([]string{"999999", "1"})
 	if err := cmd.ExecuteContext(t.Context()); err == nil {
 		t.Error("marking an unknown show didn't fail")
-	}
-}
-
-func TestStatusLabelAndScoreNote(t *testing.T) {
-	if got := StatusLabel(tracker.Repeating); got != "rewatching" {
-		t.Errorf("Repeating reads as %q", got)
-	}
-	// A status the UI doesn't name still reads as something.
-	if got := StatusLabel("SOMETHING_ELSE"); got != "something_else" {
-		t.Errorf("an unknown status reads as %q", got)
-	}
-	r := tracker.Result{Entry: store.ListEntry{Score: 8.5}, Changed: true}
-	if got := scoreNote(r); !strings.Contains(got, "8.5") {
-		t.Errorf("score note = %q", got)
-	}
-}
-
-func TestFirstLineOf(t *testing.T) {
-	if got := firstLineOf("one\ntwo\nthree"); got != "one" {
-		t.Errorf("got %q", got)
-	}
-	if got := firstLineOf("only"); got != "only" {
-		t.Errorf("got %q", got)
 	}
 }
 
@@ -346,7 +226,7 @@ func TestCheckUpdateAsksGitHubOnceADay(t *testing.T) {
 
 	version(t, "0.4.0")
 	for range 3 {
-		if _, err := app.CheckUpdate(t.Context(), client, app.store); err != nil {
+		if _, err := app.CheckUpdate(t.Context(), client, testStore(t, app)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -394,7 +274,7 @@ func TestUpgradeRefusesABuildFromSource(t *testing.T) {
 func TestRewatchCommand(t *testing.T) {
 	app := testApp(t)
 	ctx := t.Context()
-	if _, err := setWatched(ctx, app, frieren, 1, 6, true); err != nil {
+	if _, err := app.SetWatched(ctx, frieren, 1, 6, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -409,7 +289,7 @@ func TestRewatchCommand(t *testing.T) {
 		t.Errorf("said %q", note)
 	}
 
-	round, before, err := app.store.RoundInfo(ctx, frieren.ID)
+	round, before, err := testStore(t, app).RoundInfo(ctx, frieren.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -420,10 +300,10 @@ func TestRewatchCommand(t *testing.T) {
 		t.Fatalf("list = %+v", e)
 	}
 	// The new round starts empty, and the old one stays in history.
-	if progress, _ := app.store.ShowProgress(ctx, frieren.ID); len(progress) != 0 {
+	if progress, _ := testStore(t, app).ShowProgress(ctx, frieren.ID); len(progress) != 0 {
 		t.Errorf("the new round already has %d episodes", len(progress))
 	}
-	if earlier, _ := app.store.WatchedBefore(ctx, frieren.ID); len(earlier) != 6 {
+	if earlier, _ := testStore(t, app).WatchedBefore(ctx, frieren.ID); len(earlier) != 6 {
 		t.Errorf("earlier round has %d episodes, want 6", len(earlier))
 	}
 }
@@ -431,7 +311,7 @@ func TestRewatchCommand(t *testing.T) {
 func TestRateCommand(t *testing.T) {
 	app := testApp(t)
 	ctx := t.Context()
-	if _, err := setWatched(ctx, app, frieren, 1, 1, true); err != nil {
+	if _, err := app.SetWatched(ctx, frieren, 1, 1, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -476,10 +356,10 @@ func TestListAndHistoryCommands(t *testing.T) {
 		t.Errorf("an empty list said %q", out.String())
 	}
 
-	if _, err := setWatched(ctx, app, frieren, 1, 4, true); err != nil {
+	if _, err := app.SetWatched(ctx, frieren, 1, 4, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.store.SaveProgress(ctx, store.Progress{
+	if err := testStore(t, app).SaveProgress(ctx, store.Progress{
 		MediaID: frieren.ID, Episode: 5, Position: 90 * time.Second, Duration: 24 * time.Minute,
 		Provider: "anikoto", Mode: "sub",
 	}); err != nil {

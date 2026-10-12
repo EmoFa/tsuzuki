@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/EmoFa/tsuzuki/internal/anilist"
@@ -63,17 +64,28 @@ type Result struct {
 }
 
 // Note summarises a result for display.
+// Label is the friendly name for a list status: "watching" for CURRENT.
+func Label(status string) string {
+	switch status {
+	case Current:
+		return "watching"
+	case Repeating:
+		return "rewatching"
+	}
+	return strings.ToLower(status)
+}
+
 func (r Result) Note() string {
 	progress := fmt.Sprintf("episode %d", r.Entry.Progress)
 	switch {
 	case !r.Changed:
 		return "list already up to date"
 	case r.Synced:
-		return fmt.Sprintf("AniList updated: %s (%s)", progress, r.Entry.Status)
+		return fmt.Sprintf("AniList updated: %s (%s)", progress, Label(r.Entry.Status))
 	case r.SyncErr != nil:
 		return fmt.Sprintf("list updated to %s; AniList sync pending: %v", progress, r.SyncErr)
 	}
-	return fmt.Sprintf("list updated: %s (%s)", progress, r.Entry.Status)
+	return fmt.Sprintf("list updated: %s (%s)", progress, Label(r.Entry.Status))
 }
 
 // EpisodeWatched records a finished episode. Progress never goes backwards, so

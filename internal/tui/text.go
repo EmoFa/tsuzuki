@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"html"
-	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -12,7 +11,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/EmoFa/tsuzuki/internal/anilist"
-	"github.com/EmoFa/tsuzuki/internal/store"
 )
 
 var (
@@ -97,15 +95,6 @@ func mediaMeta(m anilist.Media) string {
 		parts = append(parts, fmt.Sprintf("%d%%", m.AverageScore))
 	}
 	return strings.Join(parts, " · ")
-}
-
-// nextEpisode is the episode to continue with after p: p itself if unfinished,
-// otherwise the following one.
-func nextEpisode(p store.Progress) float64 {
-	if !p.Completed {
-		return p.Episode
-	}
-	return math.Floor(p.Episode) + 1
 }
 
 func ago(t time.Time) string {

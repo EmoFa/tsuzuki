@@ -488,6 +488,12 @@ func TestNextToWatchUsesListProgress(t *testing.T) {
 }
 
 func TestSkipsFromStreamAndAniSkip(t *testing.T) {
+	t.Run("prompt as text", func(t *testing.T) { testSkips(t, false) })
+	// An interface with its own skip button prompts through statuses alone.
+	t.Run("prompt with a button", func(t *testing.T) { testSkips(t, true) })
+}
+
+func testSkips(t *testing.T, button bool) {
 	// The fake provider's streams carry no skip ranges, so they come from the
 	// SkipRanges lookup (AniSkip), which needs the duration first.
 	p := &fakeProvider{name: "senshi", eps: 3}
@@ -503,6 +509,7 @@ func TestSkipsFromStreamAndAniSkip(t *testing.T) {
 		final: player.State{Position: 1350 * time.Second, Duration: 24 * time.Minute, EndReason: "quit"},
 	})
 	h.sess.Settings.SkipActions = map[domain.SkipKind]string{domain.SkipOpening: "auto", domain.SkipEnding: "prompt"}
+	h.sess.Settings.SkipButton = button
 	lookedUp := make(chan struct{})
 	h.sess.SkipRanges = func(_ context.Context, _ anilist.Media, ep float64, length time.Duration) ([]domain.SkipRange, error) {
 		defer close(lookedUp)
@@ -548,11 +555,20 @@ func TestSkipsFromStreamAndAniSkip(t *testing.T) {
 	if len(h.seeks) != 2 || h.seeks[0] != 207*time.Second || h.seeks[1] != 1430*time.Second {
 		t.Fatalf("seeks = %v", h.seeks)
 	}
-	if strings.Join(h.osd, "|") != "Skipped opening|Ending · press TAB to skip|Skipped ending" {
+	wantOSD := "Skipped opening|Ending · press TAB to skip|Skipped ending"
+	if button {
+		wantOSD = "Skipped opening|Skipped ending"
+	}
+	if strings.Join(h.osd, "|") != wantOSD {
 		t.Fatalf("osd = %q", h.osd)
 	}
 	if sk := h.kinds(StatusSkipped); len(sk) != 2 || sk[0].Reason != "opening" {
 		t.Fatalf("skipped statuses = %+v", sk)
+	}
+	// The ending was offered from 22:25, with the 85s left of it.
+	prompts := h.kinds(StatusSkipPrompt)
+	if len(prompts) != 1 || prompts[0].Reason != "ending" || prompts[0].Position != 1345*time.Second || prompts[0].Duration != 85*time.Second {
+		t.Fatalf("prompts = %+v", prompts)
 	}
 }
 

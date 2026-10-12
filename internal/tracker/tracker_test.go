@@ -127,7 +127,7 @@ func TestLocalOnly(t *testing.T) {
 	tr := &Tracker{Store: st}
 	ctx := context.Background()
 	r, err := tr.EpisodeWatched(ctx, frieren2, 2)
-	if err != nil || !r.Changed || r.Synced || r.SyncErr != nil || r.Note() != "list updated: episode 2 (CURRENT)" {
+	if err != nil || !r.Changed || r.Synced || r.SyncErr != nil || r.Note() != "list updated: episode 2 (watching)" {
 		t.Fatalf("%+v err=%v note=%q", r, err, r.Note())
 	}
 	if pending, _ := st.PendingSyncs(ctx); len(pending) != 0 {
