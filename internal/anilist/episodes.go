@@ -29,8 +29,12 @@ func (c *Client) StreamingEpisodes(ctx context.Context, id int) (map[float64]Epi
 	key := "anilist:episodes:" + strconv.Itoa(id)
 	if c.cache != nil {
 		if v, updated, ok, err := c.cache.GetKV(ctx, key); err == nil && ok && time.Since(updated) < episodesTTL {
-			var eps map[float64]EpisodeInfo
-			if json.Unmarshal([]byte(v), &eps) == nil {
+			var cached []cachedEpisode
+			if json.Unmarshal([]byte(v), &cached) == nil {
+				eps := make(map[float64]EpisodeInfo, len(cached))
+				for _, e := range cached {
+					eps[e.Number] = e.EpisodeInfo
+				}
 				return eps, nil
 			}
 		}
@@ -61,11 +65,22 @@ func (c *Client) StreamingEpisodes(ctx context.Context, id int) (map[float64]Epi
 		}
 	}
 	if c.cache != nil {
-		if b, err := json.Marshal(eps); err == nil {
+		// A list, since encoding/json before Go 1.27 can't key a map by float.
+		cached := make([]cachedEpisode, 0, len(eps))
+		for n, e := range eps {
+			cached = append(cached, cachedEpisode{n, e})
+		}
+		if b, err := json.Marshal(cached); err == nil {
 			_ = c.cache.PutKV(ctx, key, string(b))
 		}
 	}
 	return eps, nil
+}
+
+// cachedEpisode is one entry of a cached StreamingEpisodes result.
+type cachedEpisode struct {
+	Number float64 `json:"number"`
+	EpisodeInfo
 }
 
 // parseEpisodeTitle splits "Episode 3 - Killing Magic" into 3 and "Killing Magic".

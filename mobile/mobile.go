@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -223,9 +224,21 @@ func (a *App) StartRewatch(mediaID int) (string, error) {
 	return rw.Note(), nil
 }
 
-// WatchedBefore maps episodes completed in earlier watch-throughs to true.
+// WatchedBefore lists the episodes completed in earlier watch-throughs, in
+// order.
 func (a *App) WatchedBefore(mediaID int) (string, error) {
-	return encode(a.core.WatchedBefore(a.ctx, mediaID))
+	watched, err := a.core.WatchedBefore(a.ctx, mediaID)
+	if err != nil {
+		return "", err
+	}
+	eps := make([]float64, 0, len(watched))
+	for n, ok := range watched {
+		if ok {
+			eps = append(eps, n)
+		}
+	}
+	slices.Sort(eps)
+	return encode(eps, nil)
 }
 
 // Round returns {"round": n, "watchedBefore": n} for a show.
