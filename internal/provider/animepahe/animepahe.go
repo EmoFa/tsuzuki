@@ -196,6 +196,7 @@ func (p *Provider) Streams(ctx context.Context, showID string, ep domain.Episode
 				Label:      label,
 				Headers:    map[string]string{"Referer": origin(c.embed)},
 				NeedsProxy: true,
+				Playlist:   playlistIVs,
 			}
 		})
 	}
@@ -276,4 +277,42 @@ func origin(raw string) string {
 		return ""
 	}
 	return u.Scheme + "://" + u.Host + "/"
+}
+
+// kwikSegment matches the file name of kwik's segments, numbered from 1.
+var kwikSegment = regexp.MustCompile(`segment-(\d+)-[^/]*$`)
+
+// playlistIVs is the codec kwik's playlists need. They're AES-128 encrypted
+// with no IV given, which per HLS means each segment's media sequence number,
+// but kwik encrypts with the number in the segment's file name, and some
+// playlists skip numbers. Past a gap, a player derives the wrong IV, which
+// garbles each segment's first 16 bytes: harmless mid-playback, but starting
+// or seeking there loses the stream map, and ExoPlayer never finds the video.
+var playlistIVs = &domain.PlaylistCodec{Prefix: []byte("#EXTM3U"), Decode: explicitIVs}
+
+// explicitIVs states each encrypted segment's IV before it, from its file name.
+func explicitIVs(body []byte) ([]byte, error) {
+	lines := strings.Split(string(body), "\n")
+	out := make([]string, 0, 2*len(lines))
+	key := "" // the EXT-X-KEY in force, when it gives no IV
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(t, "#EXT-X-KEY:"):
+			key = ""
+			if strings.Contains(t, "METHOD=AES-128") && !strings.Contains(t, "IV=") {
+				key = t
+			}
+		case key != "" && t != "" && !strings.HasPrefix(t, "#"):
+			name, _, _ := strings.Cut(t, "?")
+			if m := kwikSegment.FindStringSubmatch(name); m != nil {
+				n, err := strconv.Atoi(m[1])
+				if err == nil {
+					out = append(out, fmt.Sprintf("%s,IV=0x%032x", key, n))
+				}
+			}
+		}
+		out = append(out, line)
+	}
+	return []byte(strings.Join(out, "\n")), nil
 }
