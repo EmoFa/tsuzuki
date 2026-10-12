@@ -63,7 +63,8 @@ jobs:
           ref: ${{ steps.rel.outputs.tag }}
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          # gomobile needs a newer Go than tsuzuki; android/bind says which.
+          go-version-file: android/bind/go.mod
       - uses: actions/setup-java@v5
         with:
           distribution: temurin

@@ -49,6 +49,9 @@ two don't drift. Where the terminal uses mpv and Chrome, the app implements the 
 `Host`: ExoPlayer plays (`player.Remote` stands in for mpv's IPC), and WebViews run
 embed players and bot checks.
 
+gomobile lives in its own module, `android/bind`, because it needs a newer Go (1.26)
+than tsuzuki does; the main module doesn't depend on it.
+
 It needs JDK 17 or newer and the Android SDK with platform 37, build-tools 37.0.0 and
 NDK 30.0.16248370, with `ANDROID_HOME` and `ANDROID_NDK_HOME` set:
 

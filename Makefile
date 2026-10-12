@@ -36,15 +36,18 @@ snapshot:
 	PACKAGES_GITHUB_TOKEN=unused goreleaser release --snapshot --clean
 
 # The Android app (android/) embeds the Go core as an AAR built by gomobile,
-# which needs the Android SDK and NDK (ANDROID_HOME, ANDROID_NDK_HOME).
+# which needs the Android SDK and NDK (ANDROID_HOME, ANDROID_NDK_HOME). It's
+# built from the module in android/bind, which holds gomobile, so the main
+# module needn't depend on it (gomobile needs a newer Go than tsuzuki).
 AAR := android/app/libs/tsuzuki.aar
 ANDROID_TARGETS := android/arm64,android/arm,android/amd64
 
 # gomobile runs go in a temporary module, so the real go goes first on PATH.
 android-aar:
-	GOBIN=$(CURDIR)/bin/tools go install golang.org/x/mobile/cmd/gobind golang.org/x/mobile/cmd/gomobile
-	PATH="$(CURDIR)/bin/tools:$$(go env GOROOT)/bin:$$PATH" gomobile bind -target=$(ANDROID_TARGETS) -androidapi 26 \
-		-javapkg=io.github.emofa.tsuzuki.go -trimpath -ldflags '$(LDFLAGS)' -o $(AAR) ./mobile
+	mkdir -p $(dir $(AAR))
+	cd android/bind && GOBIN=$(CURDIR)/bin/tools go install golang.org/x/mobile/cmd/gobind golang.org/x/mobile/cmd/gomobile
+	cd android/bind && PATH="$(CURDIR)/bin/tools:$$(go env GOROOT)/bin:$$PATH" gomobile bind -target=$(ANDROID_TARGETS) -androidapi 26 \
+		-javapkg=io.github.emofa.tsuzuki.go -trimpath -ldflags '$(LDFLAGS)' -o $(CURDIR)/$(AAR) github.com/EmoFa/tsuzuki/mobile
 
 # Debug APKs; `make android RELEASE=1` builds signed release APKs instead.
 android: android-aar

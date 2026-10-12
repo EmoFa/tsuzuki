@@ -52,7 +52,8 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          # gomobile needs a newer Go than tsuzuki; android/bind says which.
+          go-version-file: android/bind/go.mod
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
