@@ -3,6 +3,7 @@ package anilist
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -274,5 +275,52 @@ func TestNotYetAiredAndPremiereLabel(t *testing.T) {
 	}
 	if got := airs.PremiereLabel(now.AddDate(-1, 0, 0)); got != "Episode 1 airs Sun, Sep 20, 2026" {
 		t.Errorf("label in another year = %q", got)
+	}
+}
+
+func TestAiredEpisodesAdvancesPastACachedAiringTime(t *testing.T) {
+	now := time.Unix(2_000_000_000, 0)
+	at := func(ep int, ago time.Duration) Media {
+		return Media{Status: "RELEASING", Episodes: 12,
+			NextAiringEpisode: &AiringEpisode{Episode: ep, AiringAt: now.Add(-ago).Unix()}}
+	}
+	for _, tc := range []struct {
+		name string
+		m    Media
+		want int
+	}{
+		{"still upcoming", at(3, -time.Hour), 2},
+		{"just aired", at(3, time.Hour), 3},
+		{"a week and a bit behind", at(3, 8*24*time.Hour), 4},
+		{"never past the total", at(12, 30*24*time.Hour), 12},
+		{"no air time", Media{Status: "RELEASING", NextAiringEpisode: &AiringEpisode{Episode: 3}}, 2},
+	} {
+		if got := tc.m.AiredEpisodesAt(now); got != tc.want {
+			t.Errorf("%s: %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestMediaRefetchesWhenCachedNextEpisodeHasAired(t *testing.T) {
+	var hits atomic.Int32
+	c, kv := server(t, func(w http.ResponseWriter, body string) {
+		hits.Add(1)
+		next := time.Now().Add(6 * 24 * time.Hour).Unix()
+		w.Write([]byte(fmt.Sprintf(`{"data":{"Media":{"id":7,"status":"RELEASING","episodes":12,`+
+			`"nextAiringEpisode":{"episode":4,"airingAt":%d}}}}`, next)))
+	})
+	ctx := context.Background()
+	old := fmt.Sprintf(`{"id":7,"status":"RELEASING","episodes":12,"nextAiringEpisode":{"episode":3,"airingAt":%d}}`,
+		time.Now().Add(-time.Hour).Unix())
+	kv.PutKV(ctx, "anilist:media:7", old)
+
+	// Cached a moment ago: AniList gets time to catch up.
+	if m, _ := c.Media(ctx, 7); hits.Load() != 0 || m.NextAiringEpisode.Episode != 3 {
+		t.Fatalf("refetched too soon: hits=%d", hits.Load())
+	}
+	kv.t["anilist:media:7"] = time.Now().Add(-airedRecheck - time.Minute)
+	m, err := c.Media(ctx, 7)
+	if err != nil || hits.Load() != 1 || m.NextAiringEpisode.Episode != 4 {
+		t.Fatalf("m=%+v hits=%d err=%v", m, hits.Load(), err)
 	}
 }

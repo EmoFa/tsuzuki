@@ -186,3 +186,42 @@ func TestRowsUseAniListListings(t *testing.T) {
 		t.Errorf("episode 3: %+v", rows[2])
 	}
 }
+
+func TestWantsProviderEpisodes(t *testing.T) {
+	airing := anilist.Media{Status: "RELEASING", Episodes: 12,
+		NextAiringEpisode: &anilist.AiringEpisode{Episode: 3, AiringAt: time.Now().Add(time.Hour).Unix()}}
+	if !WantsProviderEpisodes(airing) {
+		t.Error("an airing show can be ahead of AniList")
+	}
+	if WantsProviderEpisodes(frieren) {
+		t.Error("a finished show with a count")
+	}
+	if WantsProviderEpisodes(anilist.Media{Status: "NOT_YET_RELEASED"}) {
+		t.Error("nothing has aired")
+	}
+}
+
+func TestNumbersAddsListedEpisodesThatContinueTheList(t *testing.T) {
+	media := anilist.Media{Status: "RELEASING", Episodes: 12,
+		NextAiringEpisode: &anilist.AiringEpisode{Episode: 3, AiringAt: time.Now().Add(time.Hour).Unix()}}
+	s := Show{Media: media, Listed: map[float64]anilist.EpisodeInfo{
+		3: {Title: "three"}, 4: {Title: "four"}, 26: {Title: "absolute numbering"}}}
+	got := s.Numbers()
+	want := []float64{1, 2, 3, 4}
+	if len(got) != len(want) {
+		t.Fatalf("numbers %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("numbers %v, want %v", got, want)
+		}
+	}
+}
+
+func TestNumbersAddsProviderEpisodesBeyondAniList(t *testing.T) {
+	media := anilist.Media{Status: "RELEASING", NextAiringEpisode: &anilist.AiringEpisode{Episode: 3, AiringAt: time.Now().Add(time.Hour).Unix()}}
+	s := Show{Media: media, Provider: map[float64]domain.Episode{1: {Number: 1}, 2: {Number: 2}, 3: {Number: 3}}}
+	if got := s.Numbers(); len(got) != 3 || got[2] != 3 {
+		t.Fatalf("numbers %v", got)
+	}
+}

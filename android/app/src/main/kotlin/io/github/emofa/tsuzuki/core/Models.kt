@@ -54,7 +54,17 @@ data class Media(
     /** How many episodes exist so far, or 0 when unknown. */
     val airedEpisodes: Int
         get() = when {
-            nextAiringEpisode != null -> nextAiringEpisode.episode - 1
+            nextAiringEpisode != null -> {
+                // Details can be cached for hours: a next episode whose air time
+                // has passed counts as aired, with any weekly ones since.
+                var aired = nextAiringEpisode.episode - 1
+                val now = Instant.now()
+                if (nextAiringEpisode.airingAt > 0 && !now.isBefore(nextAiringEpisode.at)) {
+                    aired += 1 + (java.time.Duration.between(nextAiringEpisode.at, now).toDays() / 7).toInt()
+                    if (episodes > 0) aired = minOf(aired, episodes)
+                }
+                aired
+            }
             status == "NOT_YET_RELEASED" -> 0
             else -> episodes
         }
