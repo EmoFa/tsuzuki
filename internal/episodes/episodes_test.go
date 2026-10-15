@@ -200,6 +200,8 @@ func TestRowsFallBackToProviderThumbnails(t *testing.T) {
 	rows := s.Rows(true)
 	if rows[0].Thumbnail != "https://img/1.jpg" || rows[1].Thumbnail != "https://prov/2.jpg" || rows[2].Thumbnail != "" {
 		t.Errorf("thumbnails: %q %q %q", rows[0].Thumbnail, rows[1].Thumbnail, rows[2].Thumbnail)
+	}
+}
 
 func TestWantsProviderEpisodes(t *testing.T) {
 	airing := anilist.Media{Status: "RELEASING", Episodes: 12,
