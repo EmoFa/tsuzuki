@@ -148,6 +148,10 @@ type episode struct {
 	Number        float64 `json:"episode_number"`
 	EpisodeString string  `json:"episode_string"`
 	DurationMs    int64   `json:"duration_ms"`
+	Thumbnail     struct {
+		HQ string `json:"hq"`
+		SM string `json:"sm"`
+	} `json:"thumbnail"`
 }
 
 // Episodes lists a show's episodes in mode, following the API's paging.
@@ -156,7 +160,7 @@ func (p *Provider) Episodes(ctx context.Context, showID string, mode domain.Mode
 	if err != nil {
 		return nil, err
 	}
-	out := episodes(first.Result)
+	out := p.episodes(first.Result)
 	for i, page := range first.Pages {
 		if i == 0 || i >= maxEpisodePages || len(page.Eps) == 0 {
 			continue // the first page is already loaded
@@ -165,7 +169,7 @@ func (p *Provider) Episodes(ctx context.Context, showID string, mode domain.Mode
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, episodes(next.Result)...)
+		out = append(out, p.episodes(next.Result)...)
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("kickassanime %s in %s: %w", showID, mode, provider.ErrNotFound)
@@ -183,7 +187,7 @@ func (p *Provider) episodePage(ctx context.Context, showID string, mode domain.M
 	return list, nil
 }
 
-func episodes(eps []episode) []domain.Episode {
+func (p *Provider) episodes(eps []episode) []domain.Episode {
 	out := make([]domain.Episode, 0, len(eps))
 	for _, e := range eps {
 		number := e.EpisodeString
@@ -192,10 +196,11 @@ func episodes(eps []episode) []domain.Episode {
 		}
 		out = append(out, domain.Episode{
 			// The episode endpoint takes this form of the ID.
-			ID:       "ep-" + number + "-" + e.Slug,
-			Number:   e.Number,
-			Title:    e.Title,
-			Duration: time.Duration(e.DurationMs) * time.Millisecond,
+			ID:        "ep-" + number + "-" + e.Slug,
+			Number:    e.Number,
+			Title:     e.Title,
+			Duration:  time.Duration(e.DurationMs) * time.Millisecond,
+			Thumbnail: p.thumbnail(e),
 		})
 	}
 	return out
@@ -287,4 +292,17 @@ func subtitles(body string) []domain.Subtitle {
 		subs = append(subs, domain.Subtitle{URL: src, Lang: lang, Label: name})
 	}
 	return subs
+}
+
+// thumbnail is the episode's image URL; the API gives only its path on the
+// site's image host.
+func (p *Provider) thumbnail(e episode) string {
+	path := e.Thumbnail.HQ
+	if path == "" {
+		path = e.Thumbnail.SM
+	}
+	if path == "" {
+		return ""
+	}
+	return p.base + "/image/thumbnail/" + path + ".webp"
 }

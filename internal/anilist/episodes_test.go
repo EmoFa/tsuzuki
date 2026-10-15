@@ -3,6 +3,7 @@ package anilist
 import (
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/EmoFa/tsuzuki/internal/httpx"
@@ -21,6 +22,9 @@ func TestParseEpisodeTitle(t *testing.T) {
 		{"Episode 13.5 - Recap", 13.5, "Recap", true},
 		{"Episode 4", 4, "", true},
 		{"Frieren Special", 0, "", false},
+		{"episode 5 - lowercase", 5, "lowercase", true},
+		{"EP07: Colon", 7, "Colon", true},
+		{"Your Name.", 0, "", false},
 	} {
 		n, title, ok := parseEpisodeTitle(tc.in)
 		if n != tc.n || title != tc.title || ok != tc.ok {
@@ -52,5 +56,40 @@ func TestStreamingEpisodes(t *testing.T) {
 	}
 	if hits != 1 {
 		t.Errorf("asked AniList %d times; the second should come from the cache", hits)
+	}
+}
+
+func TestAlignEpisodes(t *testing.T) {
+	mk := func(ns ...float64) map[float64]EpisodeInfo {
+		m := map[float64]EpisodeInfo{}
+		for _, n := range ns {
+			m[n] = EpisodeInfo{Title: "t"}
+		}
+		return m
+	}
+	keys := func(m map[float64]EpisodeInfo) (ks []float64) {
+		for n := range m {
+			ks = append(ks, n)
+		}
+		slices.Sort(ks)
+		return
+	}
+	for _, tc := range []struct {
+		name  string
+		in    map[float64]EpisodeInfo
+		total int
+		want  []float64
+	}{
+		{"absolute", mk(13, 14, 15), 12, []float64{1, 2, 3}},
+		{"already aligned", mk(1, 2, 3), 12, []float64{1, 2, 3}},
+		{"unknown total", mk(13, 14), 0, []float64{13, 14}},
+		{"gap", mk(13, 15), 12, []float64{13, 15}},
+		{"overlaps season", mk(10, 11, 12, 13), 12, []float64{10, 11, 12, 13}},
+		{"longer than season", mk(139, 140, 141, 142), 3, []float64{139, 140, 141, 142}},
+		{"fractional", mk(13, 13.5), 12, []float64{13, 13.5}},
+	} {
+		if got := keys(AlignEpisodes(tc.in, tc.total)); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }

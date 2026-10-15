@@ -101,6 +101,10 @@ func TestEpisodesAndStreams(t *testing.T) {
 		t.Fatalf("episodes[0] = %+v (of %d)", eps[0], len(eps))
 	}
 
+	if want := "/image/thumbnail/642602549d33f3e832425f22/ep-1-ad5b-hq.webp"; !strings.HasSuffix(eps[0].Thumbnail, want) || !strings.HasPrefix(eps[0].Thumbnail, "https://") {
+		t.Errorf("thumbnail = %q, want …%s", eps[0].Thumbnail, want)
+	}
+
 	streams, err := p.Streams(ctx, showSlug, eps[0], domain.Sub)
 	if err != nil {
 		t.Fatal(err)

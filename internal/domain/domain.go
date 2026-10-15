@@ -41,6 +41,8 @@ type Episode struct {
 	Filler       bool          `json:"filler,omitempty"`
 	Recap        bool          `json:"recap,omitempty"`
 	Duration     time.Duration `json:"duration,omitempty"`
+	// Thumbnail is an image URL of the episode, when the provider has one.
+	Thumbnail string `json:"thumbnail,omitempty"`
 }
 
 // Label formats the episode number without a trailing ".0".

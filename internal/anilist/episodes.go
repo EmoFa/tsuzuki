@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,7 +22,7 @@ type EpisodeInfo struct {
 }
 
 // episodeTitle reads "Episode 3 - Killing Magic" (also "E3 - …" and "Episode 3: …").
-var episodeTitle = regexp.MustCompile(`^(?:Episode|Ep\.?|E)\s*(\d+(?:\.\d+)?)\s*(?:[-–—:]\s*(.*))?$`)
+var episodeTitle = regexp.MustCompile(`(?i)^(?:Episode|Ep\.?|E)\s*(\d+(?:\.\d+)?)\s*(?:[-–—:]\s*(.*))?$`)
 
 // StreamingEpisodes returns the episodes AniList lists from streaming sites,
 // by episode number. Many shows have none; that's an empty map, not an error.
@@ -75,6 +76,31 @@ func (c *Client) StreamingEpisodes(ctx context.Context, id int) (map[float64]Epi
 		}
 	}
 	return eps, nil
+}
+
+// AlignEpisodes shifts listings that continue an earlier season's numbering
+// (a 12-episode season listed as 13-24) back to start at 1. It acts only when
+// the season's length is known and the numbers are whole, consecutive, and
+// entirely beyond it, so a listing it can't place is left as it is.
+func AlignEpisodes(eps map[float64]EpisodeInfo, total int) map[float64]EpisodeInfo {
+	if total <= 0 || len(eps) == 0 {
+		return eps
+	}
+	lo, hi := math.Inf(1), 0.0
+	for n := range eps {
+		if n != math.Trunc(n) {
+			return eps
+		}
+		lo, hi = min(lo, n), max(hi, n)
+	}
+	if lo <= float64(total) || hi-lo+1 != float64(len(eps)) || len(eps) > total {
+		return eps
+	}
+	out := make(map[float64]EpisodeInfo, len(eps))
+	for n, e := range eps {
+		out[n-lo+1] = e
+	}
+	return out
 }
 
 // cachedEpisode is one entry of a cached StreamingEpisodes result.

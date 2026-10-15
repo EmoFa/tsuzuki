@@ -56,6 +56,8 @@ type App struct {
 	cancelLogin context.CancelFunc
 
 	updateURL string // where to look for releases; empty means GitHub
+
+	providerEps providerEpisodeCache
 }
 
 // NewApp starts tsuzuki with its files under filesDir and cacheDir, the app's

@@ -157,6 +157,7 @@ func (p *Provider) ExternalIDs(ctx context.Context, showID string) (anilistID, m
 	return d.AniListID, d.ID, err
 }
 
+// "ep_thumbnail" is left out: its host, i.anicdn.se, doesn't resolve.
 type episode struct {
 	Number int    `json:"ep_id"`
 	Title  string `json:"ep_title"`

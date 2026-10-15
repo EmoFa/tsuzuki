@@ -55,15 +55,21 @@ func (a *App) Episodes(mediaJSON, mode string, remote bool) (string, error) {
 	if remote {
 		// These are extras: the list still works without them.
 		s.Kinds, _ = a.core.EpisodeKinds(ctx, media)
-		s.Listed, _ = a.core.StreamingEpisodes(ctx, media.ID)
-		if needsProvider {
-			eps, err := a.core.ProviderEpisodes(ctx, media, domain.Mode(mode))
-			if err != nil {
+		if listed, err := a.core.StreamingEpisodes(ctx, media.ID); err == nil {
+			s.Listed = anilist.AlignEpisodes(listed, media.Episodes)
+		}
+		// Providers also supply thumbnails for the episodes AniList has none for.
+		if needsProvider || missingThumbnails(media, s.Listed) {
+			eps, err := a.providerEps.get(ctx, a.core, media, domain.Mode(mode))
+			if err != nil && needsProvider {
 				list.ProviderError = err.Error()
 			}
 			s.Provider = map[float64]domain.Episode{}
 			for _, e := range eps {
-				s.Provider[e.Number] = e
+				// Without needing the list itself, only what's already there gets details.
+				if needsProvider || e.Number <= float64(media.AiredEpisodes()) {
+					s.Provider[e.Number] = e
+				}
 			}
 		}
 	} else {

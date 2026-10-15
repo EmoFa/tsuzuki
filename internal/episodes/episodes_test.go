@@ -186,3 +186,19 @@ func TestRowsUseAniListListings(t *testing.T) {
 		t.Errorf("episode 3: %+v", rows[2])
 	}
 }
+
+// A provider's thumbnail fills in where AniList has none; AniList's wins.
+func TestRowsFallBackToProviderThumbnails(t *testing.T) {
+	s := Show{
+		Media: frieren,
+		Provider: map[float64]domain.Episode{
+			1: {Number: 1, Thumbnail: "https://prov/1.jpg"},
+			2: {Number: 2, Thumbnail: "https://prov/2.jpg"},
+		},
+		Listed: map[float64]anilist.EpisodeInfo{1: {Thumbnail: "https://img/1.jpg"}},
+	}
+	rows := s.Rows(true)
+	if rows[0].Thumbnail != "https://img/1.jpg" || rows[1].Thumbnail != "https://prov/2.jpg" || rows[2].Thumbnail != "" {
+		t.Errorf("thumbnails: %q %q %q", rows[0].Thumbnail, rows[1].Thumbnail, rows[2].Thumbnail)
+	}
+}

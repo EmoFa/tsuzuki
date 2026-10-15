@@ -88,6 +88,8 @@ func (p *Provider) Search(ctx context.Context, query string, _ domain.Mode) ([]d
 	return shows, nil
 }
 
+// Snapshots ("snapshot" in the release API) are left out: i.animepahe.pw
+// answers 403 to a plain image request.
 type releaseResponse struct {
 	LastPage int `json:"last_page"`
 	Data     []struct {
