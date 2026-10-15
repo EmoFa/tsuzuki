@@ -174,6 +174,7 @@ func (a *App) EpisodeKinds(ctx context.Context, media anilist.Media) (map[int]sk
 }
 
 // ProviderEpisodes lists episodes from the first provider that has the show.
+// If it has no thumbnails, later providers are asked for them.
 // Used when AniList doesn't know how many episodes have aired.
 func (a *App) ProviderEpisodes(ctx context.Context, media anilist.Media, mode domain.Mode) ([]domain.Episode, error) {
 	reg, err := a.Providers(ctx)
@@ -185,6 +186,7 @@ func (a *App) ProviderEpisodes(ctx context.Context, media anilist.Media, mode do
 		return nil, err
 	}
 	var errs []error
+	var found []domain.Episode
 	for _, name := range a.Config.ActiveProviders() {
 		p, err := reg.Get(name)
 		if err != nil {
@@ -194,12 +196,23 @@ func (a *App) ProviderEpisodes(ctx context.Context, media anilist.Media, mode do
 		if err == nil {
 			var eps []domain.Episode
 			if eps, err = p.Episodes(ctx, show.ID, mode); err == nil && len(eps) > 0 {
-				return eps, nil
+				if found == nil {
+					found = eps
+				} else {
+					fillThumbnails(found, eps)
+				}
+				if hasThumbnails(found) {
+					return found, nil
+				}
+				continue // this one has no thumbnails; a later provider may
 			}
 		}
-		if err != nil {
+		if err != nil && found == nil {
 			errs = append(errs, err)
 		}
+	}
+	if found != nil {
+		return found, nil
 	}
 	return nil, fmt.Errorf("no provider lists episodes for %s: %w", media.DisplayTitle(), errors.Join(errs...))
 }
@@ -556,4 +569,26 @@ func FirstLine(s string) string {
 		line = line[:160] + "…"
 	}
 	return line
+}
+
+func hasThumbnails(eps []domain.Episode) bool {
+	for _, e := range eps {
+		if e.Thumbnail != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// fillThumbnails copies thumbnails from other onto eps with the same number.
+func fillThumbnails(eps, other []domain.Episode) {
+	byNumber := make(map[float64]string, len(other))
+	for _, e := range other {
+		byNumber[e.Number] = e.Thumbnail
+	}
+	for i := range eps {
+		if eps[i].Thumbnail == "" {
+			eps[i].Thumbnail = byNumber[eps[i].Number]
+		}
+	}
 }
