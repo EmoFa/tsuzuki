@@ -306,8 +306,8 @@ func TestMediaRefetchesWhenCachedNextEpisodeHasAired(t *testing.T) {
 	c, kv := server(t, func(w http.ResponseWriter, body string) {
 		hits.Add(1)
 		next := time.Now().Add(6 * 24 * time.Hour).Unix()
-		w.Write([]byte(fmt.Sprintf(`{"data":{"Media":{"id":7,"status":"RELEASING","episodes":12,`+
-			`"nextAiringEpisode":{"episode":4,"airingAt":%d}}}}`, next)))
+		fmt.Fprintf(w, `{"data":{"Media":{"id":7,"status":"RELEASING","episodes":12,`+
+			`"nextAiringEpisode":{"episode":4,"airingAt":%d}}}}`, next)
 	})
 	ctx := context.Background()
 	old := fmt.Sprintf(`{"id":7,"status":"RELEASING","episodes":12,"nextAiringEpisode":{"episode":3,"airingAt":%d}}`,
