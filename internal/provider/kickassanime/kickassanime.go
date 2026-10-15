@@ -44,6 +44,9 @@ func New(client *httpx.Client, baseURL string) *Provider {
 
 func (p *Provider) Name() string { return Name }
 
+// SuppliesThumbnails says its episodes have thumbnails.
+func (p *Provider) SuppliesThumbnails() bool { return true }
+
 // locale is the audio language KickAssAnime labels a mode with.
 func locale(mode domain.Mode) string {
 	if mode == domain.Dub {

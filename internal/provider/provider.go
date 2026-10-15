@@ -26,6 +26,12 @@ type IDResolver interface {
 	ExternalIDs(ctx context.Context, showID string) (anilistID, malID int, err error)
 }
 
+// ThumbnailSupplier is implemented by providers whose episodes carry a usable
+// Thumbnail. Others are never asked for thumbnails.
+type ThumbnailSupplier interface {
+	SuppliesThumbnails() bool
+}
+
 var (
 	// ErrNotFound means the show or episode doesn't exist on this provider.
 	ErrNotFound = errors.New("not found")
