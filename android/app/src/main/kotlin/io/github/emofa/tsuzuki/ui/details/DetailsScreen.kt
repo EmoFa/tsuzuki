@@ -360,15 +360,19 @@ private fun Episode(row: EpisodeRow, media: Media, onPlay: () -> Unit, onLongPre
                 .clip(RoundedCornerShape(8.dp))
                 .background(media.coverColor(colors.surfaceVariant)),
         ) {
-            val still = row.thumbnail.ifEmpty { media.bannerImage.ifEmpty { media.coverImage.large } }
+            // A thumbnail that fails to load falls back to the show's art, like none at all.
+            var thumbnailFailed by remember(row.thumbnail) { mutableStateOf(false) }
+            val hasThumbnail = row.thumbnail.isNotEmpty() && !thumbnailFailed
+            val still = if (hasThumbnail) row.thumbnail else media.bannerImage.ifEmpty { media.coverImage.large }
             AsyncImage(
                 model = still,
+                onError = { if (hasThumbnail) thumbnailFailed = true },
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 alpha = if (dimmed) 0.55f else 1f,
                 modifier = Modifier.fillMaxSize(),
             )
-            if (row.thumbnail.isEmpty()) {
+            if (!hasThumbnail) {
                 // The show's art isn't this episode's, so say which one it is.
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)))
                 Text(

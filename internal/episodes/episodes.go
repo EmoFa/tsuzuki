@@ -197,6 +197,9 @@ func (s *Show) Row(n, next float64, progressKnown bool) Row {
 			r.Title = l.Title
 		}
 	}
+	if r.Thumbnail == "" && fromProvider {
+		r.Thumbnail = e.Thumbnail
+	}
 	p, played := s.Progress[n]
 	switch {
 	case played && p.Completed:
