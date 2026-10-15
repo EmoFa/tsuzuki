@@ -42,6 +42,13 @@ func NeedsProviderEpisodes(m anilist.Media) bool {
 	return m.AiredEpisodes() == 0 && !m.NotYetAired()
 }
 
+// WantsProviderEpisodes reports that the provider's list is worth fetching: the
+// aired count is unknown, or the show is still airing and AniList can lag
+// behind what providers have.
+func WantsProviderEpisodes(m anilist.Media) bool {
+	return NeedsProviderEpisodes(m) || (m.Status == "RELEASING" && !m.NotYetAired())
+}
+
 // Numbers lists the episodes to show: AniList's aired count, the provider's
 // list, and any watched episodes beyond both, in order.
 func (s *Show) Numbers() []float64 {
@@ -61,6 +68,24 @@ func (s *Show) Numbers() []float64 {
 	}
 	for n := range s.Progress {
 		add(n)
+	}
+	// AniList's streaming list can run ahead of its aired count, but may also
+	// number a later season from where the last one ended, so only take
+	// episodes that continue on from the ones already known.
+	if len(s.Listed) > 0 {
+		top := 0
+		for _, n := range nums {
+			if n == math.Trunc(n) {
+				top = max(top, int(n))
+			}
+		}
+		for {
+			if _, ok := s.Listed[float64(top+1)]; !ok {
+				break
+			}
+			top++
+			add(float64(top))
+		}
 	}
 	slices.Sort(nums)
 	return nums

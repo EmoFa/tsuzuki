@@ -23,6 +23,10 @@ const DefaultURL = "https://graphql.anilist.co"
 // aggressively (30-90 requests/minute), so details are cached.
 const mediaTTL = 12 * time.Hour
 
+// airedRecheck is how soon cached details are refetched once their next
+// episode's air time has passed.
+const airedRecheck = 15 * time.Minute
+
 var (
 	ErrNotFound = errors.New("anilist: not found")
 	// ErrUnauthorized means the access token is missing, expired or revoked.
@@ -139,9 +143,21 @@ func (m Media) PremiereLabel(now time.Time) string {
 }
 
 // AiredEpisodes is how many episodes exist so far, or 0 when unknown.
-func (m Media) AiredEpisodes() int {
-	if m.NextAiringEpisode != nil {
-		return m.NextAiringEpisode.Episode - 1
+func (m Media) AiredEpisodes() int { return m.AiredEpisodesAt(time.Now()) }
+
+// AiredEpisodesAt is AiredEpisodes as of now. Details can be cached for hours,
+// so when the cached next episode's air time has passed, that episode (and any
+// weekly ones since) count as aired too, up to the episode total.
+func (m Media) AiredEpisodesAt(now time.Time) int {
+	if e := m.NextAiringEpisode; e != nil {
+		aired := e.Episode - 1
+		if e.AiringAt > 0 && !now.Before(time.Unix(e.AiringAt, 0)) {
+			aired += 1 + int(now.Sub(time.Unix(e.AiringAt, 0))/(7*24*time.Hour))
+			if m.Episodes > 0 {
+				aired = min(aired, m.Episodes)
+			}
+		}
+		return aired
 	}
 	if m.Status == "NOT_YET_RELEASED" {
 		return 0
@@ -234,7 +250,14 @@ func (c *Client) cached(ctx context.Context, id int) (m Media, fresh, ok bool) {
 	if err != nil || !ok || json.Unmarshal([]byte(value), &m) != nil {
 		return m, false, false
 	}
-	return m, time.Since(updated) < mediaTTL, true
+	age := time.Since(updated)
+	// A next episode that has since aired makes the details out of date, but
+	// AniList can be slow to move on, so don't refetch on every look.
+	if e := m.NextAiringEpisode; e != nil && e.AiringAt > 0 && age > airedRecheck &&
+		!time.Now().Before(time.Unix(e.AiringAt, 0)) {
+		return m, false, true
+	}
+	return m, age < mediaTTL, true
 }
 
 func (c *Client) store(ctx context.Context, m Media) {

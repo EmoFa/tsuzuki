@@ -51,7 +51,7 @@ func (a *App) Episodes(mediaJSON, mode string, remote bool) (string, error) {
 	}
 
 	list := episodeList{Round: s.Round}
-	needsProvider := episodes.NeedsProviderEpisodes(media)
+	needsProvider := episodes.WantsProviderEpisodes(media)
 	if remote {
 		// These are extras: the list still works without them.
 		s.Kinds, _ = a.core.EpisodeKinds(ctx, media)
@@ -73,7 +73,7 @@ func (a *App) Episodes(mediaJSON, mode string, remote bool) (string, error) {
 			}
 		}
 	} else {
-		list.Loading = needsProvider
+		list.Loading = episodes.NeedsProviderEpisodes(media)
 	}
 	list.Rows = s.Rows(true)
 	list.NextUp = s.NextUp()
