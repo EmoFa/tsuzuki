@@ -11,6 +11,8 @@ import (
 	"github.com/EmoFa/tsuzuki/internal/anilist"
 	"github.com/EmoFa/tsuzuki/internal/auth"
 	"github.com/EmoFa/tsuzuki/internal/domain"
+	"github.com/EmoFa/tsuzuki/internal/mapping"
+	"github.com/EmoFa/tsuzuki/internal/provider"
 	"github.com/EmoFa/tsuzuki/internal/session"
 	"github.com/EmoFa/tsuzuki/internal/skip"
 	"github.com/EmoFa/tsuzuki/internal/store"
@@ -174,7 +176,7 @@ func (a *App) EpisodeKinds(ctx context.Context, media anilist.Media) (map[int]sk
 }
 
 // ProviderEpisodes lists episodes from the first provider that has the show.
-// If it has no thumbnails, later providers are asked for them.
+// If that provider has no thumbnails, providers that supply them fill them in.
 // Used when AniList doesn't know how many episodes have aired.
 func (a *App) ProviderEpisodes(ctx context.Context, media anilist.Media, mode domain.Mode) ([]domain.Episode, error) {
 	reg, err := a.Providers(ctx)
@@ -186,7 +188,6 @@ func (a *App) ProviderEpisodes(ctx context.Context, media anilist.Media, mode do
 		return nil, err
 	}
 	var errs []error
-	var found []domain.Episode
 	for _, name := range a.Config.ActiveProviders() {
 		p, err := reg.Get(name)
 		if err != nil {
@@ -196,25 +197,43 @@ func (a *App) ProviderEpisodes(ctx context.Context, media anilist.Media, mode do
 		if err == nil {
 			var eps []domain.Episode
 			if eps, err = p.Episodes(ctx, show.ID, mode); err == nil && len(eps) > 0 {
-				if found == nil {
-					found = eps
-				} else {
-					fillThumbnails(found, eps)
+				if !hasThumbnails(eps) {
+					a.fillProviderThumbnails(ctx, reg, mapper, media, mode, name, eps)
 				}
-				if hasThumbnails(found) {
-					return found, nil
-				}
-				continue // this one has no thumbnails; a later provider may
+				return eps, nil
 			}
 		}
-		if err != nil && found == nil {
+		if err != nil {
 			errs = append(errs, err)
 		}
 	}
-	if found != nil {
-		return found, nil
-	}
 	return nil, fmt.Errorf("no provider lists episodes for %s: %w", media.DisplayTitle(), errors.Join(errs...))
+}
+
+// fillProviderThumbnails asks the providers that supply thumbnails, other than
+// skip, for them. Failures are ignored: the list works without thumbnails.
+func (a *App) fillProviderThumbnails(ctx context.Context, reg *provider.Registry, mapper *mapping.Mapper, media anilist.Media, mode domain.Mode, skip string, eps []domain.Episode) {
+	for _, name := range a.Config.ActiveProviders() {
+		p, err := reg.Get(name)
+		if err != nil || name == skip {
+			continue
+		}
+		if t, ok := p.(provider.ThumbnailSupplier); !ok || !t.SuppliesThumbnails() {
+			continue
+		}
+		show, err := mapper.Resolve(ctx, p, media, mode)
+		if err != nil {
+			continue
+		}
+		other, err := p.Episodes(ctx, show.ID, mode)
+		if err != nil {
+			continue
+		}
+		fillThumbnails(eps, other)
+		if hasThumbnails(eps) {
+			return
+		}
+	}
 }
 
 // Watch plays req, blocking until playback ends. onStatus may be called from
